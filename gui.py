@@ -1,20 +1,41 @@
 import sys
 import os
 import ctypes
-import cv2
 import queue
 import re
 import time
+import threading
 import subprocess
+from collections import OrderedDict
+
+if getattr(sys, 'frozen', False):
+    BASE_DIR = os.path.dirname(os.path.abspath(sys.executable))
+else:
+    BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+if sys.platform == "win32":
+    try:
+        os.add_dll_directory(BASE_DIR)
+    except AttributeError:
+        pass
+    os.environ["PATH"] = BASE_DIR + os.pathsep + os.environ.get("PATH", "")
+
+ASSETS_DIR = os.path.join(BASE_DIR, "assets").replace("\\", "/")
+
 from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
                                QHBoxLayout, QPushButton, QSlider, QLabel, QFileDialog, QMessageBox, QStyle, QStyleOptionSlider, QListWidget, QListWidgetItem, QAbstractItemView,
-                               QTableWidget, QTableWidgetItem, QHeaderView, QCheckBox, QComboBox, QFrame, QProgressDialog, QMenu, QStatusBar)
+                               QTableWidget, QTableWidgetItem, QHeaderView, QCheckBox, QComboBox, QFrame, QProgressDialog, QMenu, QStatusBar, QSizePolicy)
+from PySide6.QtCore import Qt, QUrl, QTime, QPoint, QRect, QRectF, Signal, QObject, QEvent, QSize, QTimer, QThread
+from PySide6.QtGui import QPainter, QColor, QPolygon, QPen, QBrush, QIcon, QShortcut, QKeySequence, QPixmap, QImage, QCursor, QRegion
+from PySide6.QtSvg import QSvgRenderer
 import mpv
-from PySide6.QtCore import Qt, QUrl, QTime, QPoint, Signal, QObject, QEvent, QSize, QTimer, QThread
-
 import video_cutter
 
-from PySide6.QtGui import QPainter, QColor, QPolygon, QPen, QBrush, QIcon, QShortcut, QKeySequence, QPixmap, QImage, QCursor
+def get_asset_path(filename):
+    return os.path.join(ASSETS_DIR, filename).replace("\\", "/")
+
+def get_asset_icon(filename):
+    return QIcon(get_asset_path(filename))
 
 class ElidedLabel(QLabel):
     def __init__(self, text, parent=None):
@@ -38,7 +59,6 @@ class ElidedLabel(QLabel):
         painter.drawText(self.rect(), self.alignment(), elided)
         painter.end()
 
-import threading
 class ThumbnailGrabberThread(QObject):
     thumbnail_ready = Signal(int, bytes)  # emits (msec, raw_jpeg_bytes)
 
@@ -48,40 +68,59 @@ class ThumbnailGrabberThread(QObject):
         self.request_queue = queue.Queue()
         self.running = True
         self.current_video_path = ""
-        self.cap = None
+        self._cache = OrderedDict()
+        self._max_cache_size = 150
+        self._lock = threading.Lock()
         self.thread = threading.Thread(target=self.run, daemon=True)
 
     def start(self):
         self.thread.start()
 
-    def request_thumbnail(self, video_path, time_msec):
-        # Only keep the latest request to avoid lagging behind mouse movement
+    def get_cached(self, video_path, time_msec):
+        """0.2초 단위 버킷 키로 캐시된 썸네일 바이트를 조회하여 반환 (히트 시 최신화)"""
+        key = (video_path, round(time_msec / 200.0))
+        with self._lock:
+            if key in self._cache:
+                data = self._cache[key]
+                self._cache.move_to_end(key)
+                return data
+        return None
+
+    def clear_cache(self):
+        """새 영상 로드 시 이전 캐시 정리"""
+        with self._lock:
+            self._cache.clear()
+
+    def clear_queue(self):
+        """슬라이더에서 마우스가 벗어났을 때 대기 중인 불필요한 요청 제거"""
         while not self.request_queue.empty():
             try:
                 self.request_queue.get_nowait()
             except queue.Empty:
                 break
+
+    def request_thumbnail(self, video_path, time_msec):
+        # 캐시에 이미 존재하면 서브프로세스를 생성하지 않고 즉시 시그널 방출
+        cached_data = self.get_cached(video_path, time_msec)
+        if cached_data is not None:
+            self.thumbnail_ready.emit(time_msec, cached_data)
+            return
+
+        # 최신 요청만 큐에 유지하여 마우스 이동 지연 방지
+        self.clear_queue()
         self.request_queue.put((video_path, time_msec))
 
     def run(self):
-        import subprocess
-        import sys
-        import time
-        
         creation_flags = 0
         if sys.platform == "win32":
             creation_flags = subprocess.CREATE_NO_WINDOW
             
-        current_proc = None
-        
         while self.running:
             try:
-                # Wait for a request
                 item = self.request_queue.get(timeout=0.1)
                 if not item: continue
                 
-                # Drain queue completely to get the absolutely most recent request
-                # This naturally limits the extraction rate to FFmpeg's speed without lagging behind
+                # 가장 최신의 요청만 남기고 드레인
                 while not self.request_queue.empty():
                     try:
                         item = self.request_queue.get_nowait()
@@ -92,38 +131,45 @@ class ThumbnailGrabberThread(QObject):
                 video_path, time_msec = item
                 self.current_video_path = video_path
 
-                # Optimized thumbnail extraction
+                # 캐시 재확인
+                cached_data = self.get_cached(video_path, time_msec)
+                if cached_data is not None:
+                    self.thumbnail_ready.emit(time_msec, cached_data)
+                    continue
+
+                # 초고속 최적화 썸네일 추출 (I-프레임 기반 고속 탐색 및 288폭 고정)
                 cmd = [
                     "ffmpeg", "-y", "-hide_banner", "-loglevel", "quiet",
-                    "-ss", f"{time_msec / 1000.0:.3f}", # Seeking before input is fastest
+                    "-ss", f"{time_msec / 1000.0:.3f}",
                     "-i", video_path,
                     "-vframes", "1",
-                    "-an", "-sn", # Disable audio and subtitles for speed
-                    "-q:v", "8", # Slightly lower quality for much faster encoding
+                    "-an", "-sn",
+                    "-q:v", "8",
                     "-vf", "scale=288:-2",
                     "-f", "image2pipe",
                     "-vcodec", "mjpeg",
                     "-"
                 ]
                 
-                proc = subprocess.run(cmd, capture_output=True, creationflags=creation_flags, timeout=2) # Add timeout to prevent hanging
+                proc = subprocess.run(cmd, capture_output=True, creationflags=creation_flags, timeout=2)
                 
                 if proc.returncode == 0 and proc.stdout:
-                    # Emit raw bytes to GUI thread safely!
+                    key = (video_path, round(time_msec / 200.0))
+                    with self._lock:
+                        if len(self._cache) >= self._max_cache_size:
+                            self._cache.popitem(last=False)
+                        self._cache[key] = proc.stdout
                     self.thumbnail_ready.emit(time_msec, proc.stdout)
             
             except queue.Empty:
                 continue
-            except Exception as e:
-                pass # Silently drop thumbnailing errors so it doesn't crash user terminal
+            except Exception:
+                pass
 
     def stop(self):
         self.running = False
-        self.request_queue.put(None)  # Unblock the queue if it's waiting
-        # PySide6 C++ thread warning bypassed via daemon python thread
-        if self.cap:
-            try: self.cap.release()
-            except: pass
+        self.clear_queue()
+        self.request_queue.put(None)
 
 class ThumbnailTooltip(QWidget):
     def __init__(self, parent=None):
@@ -179,14 +225,11 @@ class MergeItemWidget(QWidget):
         
         self.label = ElidedLabel(text)
         self.label.setStyleSheet("background: transparent;")
-        
-        from PySide6.QtWidgets import QSizePolicy
         self.label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         
         layout.addWidget(self.label, 1) # Stretch factor 1
         
-        import os
-        assets_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets").replace("\\", "/")
+        assets_dir = ASSETS_DIR
         
         up_style = f"QPushButton {{ background: transparent; border: none; border-image: url({assets_dir}/list_up.svg); }} QPushButton:hover {{ border-image: url({assets_dir}/list_up_hover.svg); }} QPushButton:pressed {{ border-image: url({assets_dir}/list_up.svg); }} QPushButton:disabled {{ border-image: url({assets_dir}/list_up_disabled.svg); }}"
         down_style = f"QPushButton {{ background: transparent; border: none; border-image: url({assets_dir}/list_down.svg); }} QPushButton:hover {{ border-image: url({assets_dir}/list_down_hover.svg); }} QPushButton:pressed {{ border-image: url({assets_dir}/list_down.svg); }} QPushButton:disabled {{ border-image: url({assets_dir}/list_down_disabled.svg); }}"
@@ -253,14 +296,11 @@ class SegmentItemWidget(QWidget):
         
         self.label = ElidedLabel(text)
         self.label.setStyleSheet("background: transparent;")
-        
-        from PySide6.QtWidgets import QSizePolicy
         self.label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         
         layout.addWidget(self.label, 1) # Stretch factor 1
         
-        import os
-        assets_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets").replace("\\", "/")
+        assets_dir = ASSETS_DIR
         delete_style = f"QPushButton {{ background: transparent; border: none; border-image: url({assets_dir}/list_delete.svg); }} QPushButton:hover {{ border-image: url({assets_dir}/list_delete_hover.svg); }} QPushButton:pressed {{ border-image: url({assets_dir}/list_delete.svg); }}"
         
         self.btn_delete = QPushButton("")
@@ -382,12 +422,36 @@ class SeekSlider(QSlider):
             event.accept()
         super().mousePressEvent(event)
 
+    _cached_start_marker = None
+    _cached_end_marker = None
+
+    @classmethod
+    def _get_marker_images(cls):
+        if cls._cached_start_marker is not None and cls._cached_end_marker is not None:
+            return cls._cached_start_marker, cls._cached_end_marker
+
+        def _render_marker(svg_path):
+            renderer = QSvgRenderer(svg_path)
+            if not renderer.isValid():
+                return None
+            sz = renderer.defaultSize()
+            target_w = max(1, int(sz.width()))
+            target_h = max(1, int(sz.height()))
+            img = QImage(target_w, target_h, QImage.Format.Format_ARGB32_Premultiplied)
+            img.fill(Qt.GlobalColor.transparent)
+            p = QPainter(img)
+            p.setRenderHint(QPainter.RenderHint.Antialiasing)
+            renderer.render(p, QRectF(0, 0, target_w, target_h))
+            p.setCompositionMode(QPainter.CompositionMode.CompositionMode_SourceIn)
+            p.fillRect(img.rect(), Qt.GlobalColor.white)
+            p.end()
+            return img
+
+        cls._cached_start_marker = _render_marker(get_asset_path("start_check_point.svg"))
+        cls._cached_end_marker = _render_marker(get_asset_path("end_check_point.svg"))
+        return cls._cached_start_marker, cls._cached_end_marker
+
     def paintEvent(self, event):
-        from PySide6.QtSvg import QSvgRenderer
-        from PySide6.QtCore import QRectF, Qt
-        from PySide6.QtGui import QPainter, QImage, QColor, QPen, QRegion
-        import os
-        
         # 1. First draw the default QSlider (Track and Handle)
         super().paintEvent(event)
         
@@ -440,51 +504,33 @@ class SeekSlider(QSlider):
             painter.setPen(QPen(QColor("#777777"), 1))
             painter.drawRoundedRect(start_px, bar_y, end_px - start_px, bar_height, 2, 2)
 
-        # 4. Draw SVGs (Recolored to White)
-        base_dir = os.path.dirname(os.path.abspath(__file__))
-        
-        def draw_svg_icon(path, x_pos, align="start"):
-            renderer = QSvgRenderer(path)
-            if renderer.isValid():
-                sz = renderer.defaultSize()
-                target_w = sz.width()
-                target_h = sz.height()
-                
-                # Render to an image using original exact size
-                img = QImage(int(target_w), int(target_h), QImage.Format.Format_ARGB32_Premultiplied)
-                img.fill(Qt.GlobalColor.transparent)
-                
-                p2 = QPainter(img)
-                p2.setRenderHint(QPainter.RenderHint.Antialiasing)
-                renderer.render(p2, QRectF(0, 0, target_w, target_h))
-                
-                # Composition mode to make it fully white
-                p2.setCompositionMode(QPainter.CompositionMode.CompositionMode_SourceIn)
-                p2.fillRect(img.rect(), Qt.GlobalColor.white)
-                p2.end()
-                
-                # Align left edge to x_pos if start, align right edge to x_pos if end
-                target_x = x_pos if align == "start" else x_pos - target_w
-                target_y = bar_y - (target_h / 2.0) + (bar_height / 2.0)
+        # 4. Draw Cached Markers (Zero disk I/O, zero SVG re-parsing)
+        start_img, end_img = self._get_marker_images()
 
-                target_rect = QRectF(target_x, target_y, target_w, target_h)
-                painter.drawImage(target_rect, img)
+        def draw_marker(img, x_pos, align="start"):
+            if img is None:
+                return
+            target_w = img.width()
+            target_h = img.height()
+            target_x = x_pos if align == "start" else x_pos - target_w
+            target_y = bar_y - (target_h / 2.0) + (bar_height / 2.0)
+            painter.drawImage(QRectF(target_x, target_y, target_w, target_h), img)
 
         # Draw markers for saved segments
         for start, end in self.segments:
             s_px = get_px(start)
             e_px = get_px(end)
             if s_px >= 0:
-                draw_svg_icon(os.path.join(base_dir, "assets", "start_check_point.svg"), s_px, align="start")
+                draw_marker(start_img, s_px, align="start")
             if e_px >= 0:
-                draw_svg_icon(os.path.join(base_dir, "assets", "end_check_point.svg"), e_px, align="end")
+                draw_marker(end_img, e_px, align="end")
 
         # Draw markers for current selection
         if start_px >= 0:
-            draw_svg_icon(os.path.join(base_dir, "assets", "start_check_point.svg"), start_px, align="start")
+            draw_marker(start_img, start_px, align="start")
 
         if end_px >= 0:
-            draw_svg_icon(os.path.join(base_dir, "assets", "end_check_point.svg"), end_px, align="end")
+            draw_marker(end_img, end_px, align="end")
 
         painter.end()
 
@@ -550,6 +596,7 @@ class ExportWorker(QThread):
                 continue
 
             time_pattern = re.compile(r"time=(\d+):(\d+):(\d+\.\d+)")
+            last_err_lines = []
             
             while True:
                 if not self.running:
@@ -567,7 +614,14 @@ class ExportWorker(QThread):
                     
                 if not line and self.process.poll() is not None:
                     break
-                    
+                
+                if line:
+                    stripped = line.strip()
+                    if stripped:
+                        last_err_lines.append(stripped)
+                        if len(last_err_lines) > 20:
+                            last_err_lines.pop(0)
+
                 match = time_pattern.search(line)
                 if match and total_duration_ms > 0:
                     h, m, s = match.groups()
@@ -586,7 +640,11 @@ class ExportWorker(QThread):
                 if 'output' in task:
                     generated_files.append(task['output'])
             elif self.running:
-                fail_messages.append(f"{desc} 에러 발생")
+                err_summary = "\n".join(l for l in last_err_lines[-5:] if not l.startswith("frame=") and not l.startswith("size="))
+                if err_summary:
+                    fail_messages.append(f"{desc} 에러 발생:\n{err_summary}")
+                else:
+                    fail_messages.append(f"{desc} 에러 발생 (종료 코드: {self.process.returncode})")
             
             completed_ms += task_duration
         
@@ -611,7 +669,7 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("MKV Lossless Editor")
-        icon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets", "icon.svg")
+        icon_path = get_asset_path("icon.svg")
         self.setWindowIcon(QIcon(icon_path))
         
         # Apply Dark Mode to Windows Title Bar
@@ -777,26 +835,35 @@ class MainWindow(QMainWindow):
         self.video_widget.customContextMenuRequested.connect(self.show_context_menu)
         self.layout.addWidget(self.video_widget, stretch=1)
 
-        # Initialize MPV with hardware-accelerated GPU rendering
-        self.player = mpv.MPV(
-            wid=str(int(self.video_widget.winId())),
-            hwdec='auto',
-            vo='gpu',
-            keep_open='yes',
-            osd_level=0,
-            cursor_autohide='no',
-            input_cursor='no',
-            input_default_bindings='no',
-            input_vo_keyboard='no',
-            sub_shadow_offset=2,
-            sub_shadow_color='#000000',
-            sub_border_size=2,
-        )
+        # Initialize MPV with hardware-accelerated GPU rendering and memory optimizations
+        mpv_kwargs = {
+            'wid': str(int(self.video_widget.winId())),
+            'hwdec': 'auto-safe',
+            'vo': 'gpu',
+            'keep_open': 'yes',
+            'osd_level': 0,
+            'cursor_autohide': 'no',
+            'input_cursor': 'no',
+            'input_default_bindings': 'no',
+            'input_vo_keyboard': 'no',
+            'sub_shadow_offset': 2,
+            'sub_shadow_color': '#000000',
+            'sub_border_size': 2,
+            # Memory & Resource Optimization: prevent massive demuxer RAM cache bloat
+            'demuxer_max_bytes': 64 * 1024 * 1024,      # RAM cache capped at 64MB (default can be 150MB~1GB)
+            'demuxer_max_back_bytes': 32 * 1024 * 1024, # Rewind cache capped at 32MB
+            'demuxer_readahead_secs': 5,                # Read-ahead duration 5s
+            'hr_seek': 'yes',                           # Precise seek
+        }
+        if sys.platform == "win32":
+            mpv_kwargs['gpu_context'] = 'd3d11'
+
+        self.player = mpv.MPV(**mpv_kwargs)
         self.player.volume = 100
 
-        # Timer for polling MPV state (replaces Qt signal-based updates)
+        # Timer for polling MPV state (optimized to 100ms / 10fps for minimal CPU overhead)
         self._mpv_timer = QTimer(self)
-        self._mpv_timer.setInterval(50)
+        self._mpv_timer.setInterval(100)
         self._mpv_timer.timeout.connect(self._mpv_poll)
         self._mpv_timer.start()
 
@@ -840,7 +907,7 @@ class MainWindow(QMainWindow):
         self.bottom_panel_layout.addLayout(self.controls_layout)
 
         # Pre Frame Button (1 Frame Back)
-        self.pre_frame_icon = QIcon("assets/pre_frame.svg")
+        self.pre_frame_icon = get_asset_icon("pre_frame.svg")
         self.pre_frame_button = QPushButton()
         self.pre_frame_button.setIcon(self.pre_frame_icon)
         self.pre_frame_button.setIconSize(QSize(42, 36))
@@ -852,7 +919,7 @@ class MainWindow(QMainWindow):
         self.controls_layout.addWidget(self.pre_frame_button)
 
         # Rewind Button (5s Back)
-        self.rewind_icon = QIcon("assets/rewind.svg")
+        self.rewind_icon = get_asset_icon("rewind.svg")
         self.rewind_button = QPushButton()
         self.rewind_button.setIcon(self.rewind_icon)
         self.rewind_button.setIconSize(QSize(42, 36))
@@ -864,8 +931,8 @@ class MainWindow(QMainWindow):
         self.controls_layout.addWidget(self.rewind_button)
 
         # Play/Pause Button
-        self.play_icon = QIcon("assets/play.svg")
-        self.pause_icon = QIcon("assets/pause.svg")
+        self.play_icon = get_asset_icon("play.svg")
+        self.pause_icon = get_asset_icon("pause.svg")
         self.play_button = QPushButton()
         self.play_button.setIcon(self.play_icon)
         self.play_button.setIconSize(QSize(42, 36))
@@ -877,7 +944,7 @@ class MainWindow(QMainWindow):
         self.controls_layout.addWidget(self.play_button)
 
         # Stop Button
-        self.stop_icon = QIcon("assets/stop.svg")
+        self.stop_icon = get_asset_icon("stop.svg")
         self.stop_button = QPushButton()
         self.stop_button.setIcon(self.stop_icon)
         self.stop_button.setIconSize(QSize(42, 36))
@@ -889,7 +956,7 @@ class MainWindow(QMainWindow):
         self.controls_layout.addWidget(self.stop_button)
 
         # Fast Forward Button
-        self.fast_forward_icon = QIcon("assets/fast_forward.svg")
+        self.fast_forward_icon = get_asset_icon("fast_forward.svg")
         self.fast_forward_button = QPushButton()
         self.fast_forward_button.setIcon(self.fast_forward_icon)
         self.fast_forward_button.setIconSize(QSize(42, 36))
@@ -901,7 +968,7 @@ class MainWindow(QMainWindow):
         self.controls_layout.addWidget(self.fast_forward_button)
 
         # Next Frame Button
-        self.next_frame_icon = QIcon("assets/next_frame.svg")
+        self.next_frame_icon = get_asset_icon("next_frame.svg")
         self.next_frame_button = QPushButton()
         self.next_frame_button.setIcon(self.next_frame_icon)
         self.next_frame_button.setIconSize(QSize(42, 36))
@@ -913,7 +980,7 @@ class MainWindow(QMainWindow):
         self.controls_layout.addWidget(self.next_frame_button)
 
         # Open File Button
-        self.open_icon = QIcon("assets/open.svg")
+        self.open_icon = get_asset_icon("open.svg")
         self.open_button = QPushButton()
         self.open_button.setIcon(self.open_icon)
         self.open_button.setIconSize(QSize(42, 36))
@@ -928,8 +995,8 @@ class MainWindow(QMainWindow):
         self.controls_layout.addWidget(self.time_label)
         
         # Volume Button & Slider
-        self.volume_icon = QIcon("assets/volume_max.svg")
-        self.volume_mute_icon = QIcon("assets/volume_mute.svg")
+        self.volume_icon = get_asset_icon("volume_max.svg")
+        self.volume_mute_icon = get_asset_icon("volume_mute.svg")
         self.volume_button = QPushButton()
         self.volume_button.setIcon(self.volume_icon)
         self.volume_button.setIconSize(QSize(24, 24))
@@ -956,7 +1023,7 @@ class MainWindow(QMainWindow):
         self.end_time = 0
         self.segments = [] # List of (start, end)
         
-        self.start_icon = QIcon("assets/start_point.svg")
+        self.start_icon = get_asset_icon("start_point.svg")
         self.set_start_btn = QPushButton()
         self.set_start_btn.setIcon(self.start_icon)
         self.set_start_btn.setIconSize(QSize(42, 36))
@@ -968,7 +1035,7 @@ class MainWindow(QMainWindow):
         self.set_start_btn.clicked.connect(self.set_start_mark)
         self.controls_layout.addWidget(self.set_start_btn)
         
-        self.end_icon = QIcon("assets/end_point.svg")
+        self.end_icon = get_asset_icon("end_point.svg")
         self.set_end_btn = QPushButton()
         self.set_end_btn.setIcon(self.end_icon)
         self.set_end_btn.setIconSize(QSize(42, 36))
@@ -980,7 +1047,7 @@ class MainWindow(QMainWindow):
         self.set_end_btn.clicked.connect(self.set_end_mark)
         self.controls_layout.addWidget(self.set_end_btn)
 
-        self.move_start_point_icon = QIcon("assets/move_start_point.svg")
+        self.move_start_point_icon = get_asset_icon("move_start_point.svg")
         self.move_start_point_btn = QPushButton()
         self.move_start_point_btn.setIcon(self.move_start_point_icon)
         self.move_start_point_btn.setIconSize(QSize(42, 36))
@@ -992,7 +1059,7 @@ class MainWindow(QMainWindow):
         self.move_start_point_btn.setEnabled(False)
         self.controls_layout.addWidget(self.move_start_point_btn)
         
-        self.move_end_point_icon = QIcon("assets/move_end_point.svg")
+        self.move_end_point_icon = get_asset_icon("move_end_point.svg")
         self.move_end_point_btn = QPushButton()
         self.move_end_point_btn.setIcon(self.move_end_point_icon)
         self.move_end_point_btn.setIconSize(QSize(42, 36))
@@ -1005,7 +1072,7 @@ class MainWindow(QMainWindow):
         self.controls_layout.addWidget(self.move_end_point_btn)
 
         self.inverse_btn = QPushButton()
-        self.inverse_btn.setIcon(QIcon(os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets", "select_inverse.svg")))
+        self.inverse_btn.setIcon(get_asset_icon("select_inverse.svg"))
         self.inverse_btn.setIconSize(QSize(42, 36))
         self.inverse_btn.setFixedSize(42, 36)
         self.inverse_btn.setStyleSheet("background-color: transparent; border: none;")
@@ -1016,7 +1083,7 @@ class MainWindow(QMainWindow):
         self.controls_layout.addWidget(self.inverse_btn)
 
         self.clear_btn = QPushButton()
-        self.clear_btn.setIcon(QIcon(os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets", "deselect.svg")))
+        self.clear_btn.setIcon(get_asset_icon("deselect.svg"))
         self.clear_btn.setIconSize(QSize(42, 36))
         self.clear_btn.setFixedSize(42, 36)
         self.clear_btn.setStyleSheet("background-color: transparent; border: none;")
@@ -1053,7 +1120,7 @@ class MainWindow(QMainWindow):
         
         self.tracks_header_layout.addStretch()
         
-        assets_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets").replace("\\", "/")
+        assets_dir = ASSETS_DIR
         
         self.btn_maximize = QPushButton()
         self.btn_maximize.setFixedSize(20, 20)
@@ -1113,7 +1180,7 @@ class MainWindow(QMainWindow):
         self.tracks_table.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         
         # 동적 흰색 체크박스 SVG 아이콘 생성
-        check_path = os.path.join(os.path.dirname(__file__), "assets/check_white.svg")
+        check_path = get_asset_path("check_white.svg")
         with open(check_path, "w", encoding="utf-8") as f:
             f.write('<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M5 13L9 17L19 7" stroke="white" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg>')
             
@@ -1313,22 +1380,27 @@ class MainWindow(QMainWindow):
             self.thumbnail_tooltip.show()
             
         if self.file_path:
-            self.thumbnail_thread.request_thumbnail(self.file_path, time_msec)
+            # 캐시에 이미 있으면 즉시 렌더링, 없을 때만 백그라운드 요청
+            cached_data = self.thumbnail_thread.get_cached(self.file_path, time_msec)
+            if cached_data is not None:
+                self.on_thumbnail_ready(time_msec, cached_data)
+            else:
+                self.thumbnail_thread.request_thumbnail(self.file_path, time_msec)
 
     def on_thumbnail_ready(self, time_msec, img_data):
         if not hasattr(self, 'thumbnail_tooltip') or not self.thumbnail_tooltip.isVisible():
             return
             
         qimg = QImage()
-        loaded = qimg.loadFromData(img_data)
-        
-        if loaded and not qimg.isNull():
-            pixmap = QPixmap.fromImage(qimg).scaled(288, 162, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
-            self.thumbnail_tooltip.img_label.setPixmap(pixmap)
+        if qimg.loadFromData(img_data) and not qimg.isNull():
+            # FFmpeg에서 이미 288폭으로 최적 출력되었으므로 고비용 소프트웨어 스케일링 생략
+            self.thumbnail_tooltip.img_label.setPixmap(QPixmap.fromImage(qimg))
 
     def on_slider_leave(self):
         if hasattr(self, 'thumbnail_tooltip'):
             self.thumbnail_tooltip.hide()
+        if hasattr(self, 'thumbnail_thread'):
+            self.thumbnail_thread.clear_queue()
 
     def setup_shortcuts(self):
         self.app_shortcuts = []
@@ -1394,7 +1466,6 @@ class MainWindow(QMainWindow):
                         
                 elif not self.bottom_panel.isHidden() and self._is_true_fullscreen:
                     top_left = self.bottom_panel.mapToGlobal(QPoint(0, 0))
-                    from PySide6.QtCore import QRect
                     panel_rect = QRect(top_left, self.bottom_panel.size())
                     
                     if not panel_rect.contains(global_pos):
@@ -1409,7 +1480,6 @@ class MainWindow(QMainWindow):
                         self.top_panel.raise_()
                 elif not self.top_panel.isHidden() and self._is_true_fullscreen:
                     top_left = self.top_panel.mapToGlobal(QPoint(0, 0))
-                    from PySide6.QtCore import QRect
                     panel_rect = QRect(top_left, self.top_panel.size())
                     # Give an extra 30px tolerance below so it doesn't flicker
                     if not panel_rect.adjusted(0, 0, 0, 30).contains(global_pos):
@@ -1423,7 +1493,7 @@ class MainWindow(QMainWindow):
             self.top_panel.setGeometry(0, 0, self.central_widget.width(), 50)
     def changeEvent(self, event):
         if event.type() == QEvent.Type.WindowStateChange:
-            assets_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets").replace("\\", "/")
+            assets_dir = ASSETS_DIR
             if hasattr(self, 'btn_maximize'):
                 if self.isMaximized():
                     self.btn_maximize.setStyleSheet(f"QPushButton {{ background: transparent; border: none; border-image: url({assets_dir}/min_screen.svg); }} QPushButton:hover {{ border-image: url({assets_dir}/min_screen_hover.svg); }}")
@@ -1446,7 +1516,7 @@ class MainWindow(QMainWindow):
             self.move(window_geometry.topLeft())
 
     def handle_video_double_click(self):
-        assets_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets").replace("\\", "/")
+        assets_dir = ASSETS_DIR
         if self._is_true_fullscreen:
             self._is_true_fullscreen = False
             self.central_widget.setStyleSheet("QWidget#centralWidget { background-color: transparent; }")
@@ -1466,7 +1536,7 @@ class MainWindow(QMainWindow):
             self.toggle_maximized()
 
     def toggle_maximized(self):
-        assets_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets").replace("\\", "/")
+        assets_dir = ASSETS_DIR
         
         if self._is_true_fullscreen:
             self._is_true_fullscreen = False
@@ -1497,7 +1567,7 @@ class MainWindow(QMainWindow):
                 self.btn_maximize.setStyleSheet(f"QPushButton {{ background: transparent; border: none; border-image: url({assets_dir}/min_screen.svg); }} QPushButton:hover {{ border-image: url({assets_dir}/min_screen_hover.svg); }}")
 
     def toggle_true_fullscreen(self):
-        assets_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets").replace("\\", "/")
+        assets_dir = ASSETS_DIR
         if self.isFullScreen():
             self._is_true_fullscreen = False
             self.central_widget.setStyleSheet("QWidget#centralWidget { background-color: transparent; }")
@@ -1631,6 +1701,9 @@ class MainWindow(QMainWindow):
         # Clear previous thumbnail
         if hasattr(self, 'thumbnail_tooltip') and self.thumbnail_tooltip:
             self.thumbnail_tooltip.img_label.clear()
+        if hasattr(self, 'thumbnail_thread') and self.thumbnail_thread:
+            self.thumbnail_thread.clear_cache()
+            self.thumbnail_thread.clear_queue()
             
         self.top_title_label.setText(os.path.basename(self.file_path))
         self.player.play(self.file_path)
@@ -1672,8 +1745,9 @@ class MainWindow(QMainWindow):
         self.file_path = None
         self.player.command('stop')
         
-        self.slider.setEnabled(False)
-        self.play_button.setEnabled(False)
+        self.play_button.setEnabled(True) # 빈 상태일 때 누를 수 있게 유지 (클릭 시 파일 열기)
+        self.play_button.setIcon(self.play_icon)
+        self.play_button.setToolTip("재생 / 파일 새로 열기")
         self.stop_button.setEnabled(False)
         self.rewind_button.setEnabled(False)
         self.pre_frame_button.setEnabled(False)
@@ -1689,30 +1763,14 @@ class MainWindow(QMainWindow):
         self.multi_merge_play_idx = -1
         self.merge_queue_list.clear()
         self.export_btn.setText("내보내기")
-        self.slider.setEnabled(True)
-
-        self.player.command('stop')
-        self.file_path = None
-        self.play_button.setEnabled(True) # 빈 상태일 때 누를 수 있게 유지
-        self.play_button.setToolTip("재생 / 파일 새로 열기")
-        self.stop_button.setEnabled(False)
-        self.rewind_button.setEnabled(False)
-        self.pre_frame_button.setEnabled(False)
-        self.fast_forward_button.setEnabled(False)
-        self.next_frame_button.setEnabled(False)
-        self.move_start_point_btn.setEnabled(False)
-        self.move_end_point_btn.setEnabled(False)
-        self.set_start_btn.setEnabled(False)
-        self.set_end_btn.setEnabled(False)
-        self.inverse_btn.setEnabled(False)
-        self.clear_btn.setEnabled(False)
-        self.play_button.setIcon(self.play_icon)
         self.setWindowTitle("MKV Lossless Cutter")
         
         # UI 및 타임라인 초기화
+        self.slider.setEnabled(True)
         self.slider.setRange(0, 0)
         self.slider.setValue(0)
         self.time_label.setText("00:00:00 / 00:00:00")
+        self._last_time_label_text = "00:00:00 / 00:00:00"
         
         # 선택 구간 초기화
         self.start_time = 0
@@ -1723,6 +1781,9 @@ class MainWindow(QMainWindow):
         self.update_segments_list()
         self.tracks_table.setRowCount(0)
         self.check_export_ready()
+        if hasattr(self, 'thumbnail_thread') and self.thumbnail_thread:
+            self.thumbnail_thread.clear_cache()
+            self.thumbnail_thread.clear_queue()
         self.statusBar().showMessage("준비 완료")
 
     def set_button_icon(self, btn, icon, tooltip=None):
@@ -2194,7 +2255,8 @@ class MainWindow(QMainWindow):
 
     def position_changed(self, position):
         if not self.is_slider_pressed:
-            self.slider.setValue(position)
+            if self.slider.value() != position:
+                self.slider.setValue(position)
             
         # 다중 병합 미리보기 모드일 때, 영상 재생이 거의 끝나가면 다음 영상으로 전환
         if self.is_multi_merge_mode and self._mpv_dur_ms() > 0:
@@ -2214,7 +2276,10 @@ class MainWindow(QMainWindow):
     def update_time_label(self):
         current = self.format_time(self._mpv_pos_ms())
         total = self.format_time(self._mpv_dur_ms())
-        self.time_label.setText(f"{current} / {total}")
+        text = f"{current} / {total}"
+        if getattr(self, '_last_time_label_text', None) != text:
+            self._last_time_label_text = text
+            self.time_label.setText(text)
 
     def format_time(self, ms):
         seconds = (ms // 1000) % 60
@@ -2245,20 +2310,26 @@ class MainWindow(QMainWindow):
         if not getattr(self, 'file_path', None):
             return
         try:
-            pos_ms = self._mpv_pos_ms()
-            dur_ms = self._mpv_dur_ms()
-            if dur_ms > 0 and self.slider.maximum() != dur_ms:
-                self.duration_changed(dur_ms)
-            self.position_changed(pos_ms)
             is_paused = True
             try:
                 p = self.player.pause
                 is_paused = p if p is not None else True
             except:
                 pass
+
             if is_paused != self._mpv_prev_pause_state:
                 self._mpv_prev_pause_state = is_paused
                 self.media_state_changed(not is_paused)
+
+            # 일시정지 상태이고 슬라이더를 조작 중이지 않다면 불필요한 반복 계산 및 위젯 갱신 방지
+            if is_paused and not self.is_slider_pressed:
+                return
+
+            pos_ms = self._mpv_pos_ms()
+            dur_ms = self._mpv_dur_ms()
+            if dur_ms > 0 and self.slider.maximum() != dur_ms:
+                self.duration_changed(dur_ms)
+            self.position_changed(pos_ms)
         except:
             pass
 
@@ -2451,8 +2522,6 @@ class MainWindow(QMainWindow):
         if logicalIndex == 0:
             self.header_checkbox.toggle()
         elif logicalIndex == 1:
-            from PySide6.QtWidgets import QMenu
-            from PySide6.QtGui import QCursor
             menu = QMenu(self)
             menu.setStyleSheet("QMenu { background-color: #2b2b2b; color: white; border: 1px solid #444; } QMenu::item:selected { background-color: #555; }")
             
@@ -2751,39 +2820,83 @@ class MainWindow(QMainWindow):
         original_ext = original_ext.lower() if original_ext else ".mkv"
         
         ext = original_ext
+        is_subtitle_export = False
+        is_audio_export = False
+        file_filter = ""
+        
         if "비디오" not in selected_track_types and len(selected_track_types) > 0:
             if all(t == "자막" for t in selected_track_types):
-                if len(selected_track_types) == 1 and ("srt" in selected_track_codecs[0] or "subrip" in selected_track_codecs[0]):
-                    ext = ".srt"
+                is_subtitle_export = True
+                if len(selected_track_types) == 1:
+                    codec = selected_track_codecs[0] if selected_track_codecs else ""
+                    if "ass" in codec or "ssa" in codec:
+                        ext = ".ass"
+                    elif "vtt" in codec or "webvtt" in codec:
+                        ext = ".vtt"
+                    elif "pgs" in codec or "sup" in codec or "dvd" in codec:
+                        ext = ".sup"
+                    else:
+                        ext = ".srt"
                 else:
                     ext = ".mks"
+                file_filter = "자막 파일 (*.srt *.ass *.vtt *.sup *.mks);;SRT 자막 (*.srt);;ASS 자막 (*.ass);;WebVTT 자막 (*.vtt);;PGS 자막 (*.sup);;Matroska 자막 (*.mks);;모든 파일 (*.*)"
             elif all(t == "오디오" for t in selected_track_types):
+                is_audio_export = True
                 if len(selected_track_types) == 1:
-                    codec = selected_track_codecs[0]
+                    codec = selected_track_codecs[0] if selected_track_codecs else ""
                     if codec == "aac":
                         ext = ".m4a"
                     elif codec == "mp3":
                         ext = ".mp3"
+                    elif codec == "flac":
+                        ext = ".flac"
+                    elif codec == "wav":
+                        ext = ".wav"
+                    elif codec in ["opus", "vorbis"]:
+                        ext = ".ogg"
                     else:
                         ext = ".mka"
                 else:
                     ext = ".mka"
+                file_filter = "오디오 파일 (*.m4a *.mp3 *.aac *.flac *.wav *.ogg *.mka);;모든 파일 (*.*)"
             else:
                 ext = ".mka"
+                file_filter = "미디어 파일 (*.mka *.mkv);;모든 파일 (*.*)"
+        else:
+            file_filter = f"비디오 파일 (*{original_ext});;모든 파일 (*.*)"
         
         if not has_segments:
             default_output = os.path.join(dir_name, f"{base_name}_extracted{ext}")
         else:
             default_output = os.path.join(dir_name, f"{base_name}_cut{ext}")
 
-        desc = "Audio Files" if ext in ['.m4a', '.mp3', '.mka', '.aac', '.flac', '.wav', '.ogg'] else "Subtitle Files" if ext in ['.srt', '.mks', '.ass', '.vtt'] else "Video Files"
-        output_path, _ = QFileDialog.getSaveFileName(self, "저장할 파일 선택", default_output, f"{desc} (*{ext});;All Files (*)")
+        output_path, selected_filter = QFileDialog.getSaveFileName(self, "저장할 파일 선택", default_output, file_filter)
         
         if output_path:
             output_dir = os.path.dirname(output_path)
             output_base, output_ext = os.path.splitext(os.path.basename(output_path))
-            
-            process_segments = self.segments if has_segments else [(0, self._mpv_dur_ms())]
+            if not output_ext:
+                m = re.search(r'\*\.([a-zA-Z0-9]+)', selected_filter)
+                if m and m.group(1) != "*":
+                    output_ext = "." + m.group(1).lower()
+                else:
+                    output_ext = ext
+                output_path += output_ext
+
+            # Validate PGS to text subtitle conflict
+            if is_subtitle_export and output_ext.lower() in [".srt", ".vtt", ".ass", ".ssa"]:
+                has_pgs = any("pgs" in c or "sup" in c or "dvd" in c for c in selected_track_codecs)
+                if has_pgs:
+                    QMessageBox.warning(
+                        self,
+                        "자막 형식 경고",
+                        "선택한 자막(PGS/이미지 자막)은 텍스트가 아닌 이미지 형식의 자막입니다.\n"
+                        ".srt/.ass 텍스트 자막으로 직접 내보낼 수 없습니다.\n"
+                        ".sup 또는 .mks 확장자로 저장해 주세요."
+                    )
+                    return
+
+            process_segments = self.segments if has_segments else [(None, None)]
             total = len(process_segments)
             do_merge = self.merge_checkbox.isChecked() and total > 1
             
@@ -2791,7 +2904,10 @@ class MainWindow(QMainWindow):
             generated_files = []
             
             for i, (start_idx, end_idx) in enumerate(process_segments):
-                duration_ms = max(0, end_idx - start_idx)
+                if start_idx is not None and end_idx is not None:
+                    duration_ms = max(0, end_idx - start_idx)
+                else:
+                    duration_ms = self._mpv_dur_ms()
                 
                 if do_merge:
                     current_output = os.path.join(output_dir, f"{output_base}_temp_part{i+1}{output_ext}")
@@ -2802,9 +2918,10 @@ class MainWindow(QMainWindow):
                     
                 generated_files.append(current_output)
                 cmd = video_cutter.build_cut_cmd(self.file_path, start_idx, end_idx, current_output, selected_track_ids)
+                task_desc = "자막 내보내기 중..." if is_subtitle_export else f"구간 내보내기 중... ({i+1}/{total})"
                 tasks.append({
                     'cmd': cmd,
-                    'desc': f"구간 내보내기 중... ({i+1}/{total})",
+                    'desc': task_desc,
                     'duration_ms': duration_ms,
                     'output': current_output
                 })

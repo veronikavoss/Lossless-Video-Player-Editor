@@ -1,5 +1,6 @@
 import subprocess
 import os
+import sys
 import json
 
 def format_time_ffmpeg(ms):
@@ -27,7 +28,6 @@ def get_media_tracks(file_path):
         file_path
     ]
     try:
-        import sys
         creation_flags = 0
         if sys.platform == "win32":
             creation_flags = subprocess.CREATE_NO_WINDOW
@@ -58,26 +58,40 @@ def get_media_tracks(file_path):
 
 def build_cut_cmd(input_path, start_ms, end_ms, output_path, selected_track_ids=None):
     """
-    Builds the ffmpeg command for cutting the video.
+    Builds the ffmpeg command for cutting video/audio or exporting subtitles.
     Returns the command list.
     """
-    start_str = format_time_ffmpeg(start_ms)
-    end_str = format_time_ffmpeg(end_ms)
+    cmd = ["ffmpeg", "-y"]
     
-    cmd = [
-        "ffmpeg",
-        "-y", # Overwrite output files
-        "-ss", start_str,
-        "-to", end_str,
-        "-i", input_path,
-        "-c", "copy"
-    ]
+    # Only add -ss and -to if a valid range is provided
+    if start_ms is not None and end_ms is not None and (start_ms > 0 or end_ms > 0):
+        start_str = format_time_ffmpeg(start_ms)
+        end_str = format_time_ffmpeg(end_ms)
+        cmd.extend(["-ss", start_str, "-to", end_str])
+        
+    cmd.extend(["-i", input_path])
     
     if selected_track_ids is not None:
         for track_id in selected_track_ids:
             cmd.extend(["-map", f"0:{track_id}"])
     else:
         cmd.extend(["-map", "0"]) # Map all streams
+        
+    out_ext = os.path.splitext(output_path)[1].lower()
+    
+    # Subtitle specific codec/format handling
+    if out_ext == ".srt":
+        cmd.extend(["-c:s", "srt"])
+    elif out_ext in [".ass", ".ssa"]:
+        cmd.extend(["-c:s", "ass"])
+    elif out_ext == ".vtt":
+        cmd.extend(["-c:s", "webvtt"])
+    elif out_ext == ".sup":
+        cmd.extend(["-c:s", "copy"])
+    elif out_ext == ".mks":
+        cmd.extend(["-c", "copy", "-f", "matroska"])
+    else:
+        cmd.extend(["-c", "copy"])
         
     cmd.append(output_path)
     return cmd
@@ -101,14 +115,17 @@ def build_merge_cmd(input_files, output_path):
     except Exception as e:
         return None, f"Failed to create concat list file: {e}"
 
+    out_ext = os.path.splitext(output_path)[1].lower()
     cmd = [
         "ffmpeg",
         "-y",
         "-f", "concat",
         "-safe", "0",
         "-i", list_file_path,
-        "-c", "copy",
-        output_path
     ]
+    if out_ext == ".mks":
+        cmd.extend(["-c", "copy", "-f", "matroska", output_path])
+    else:
+        cmd.extend(["-c", "copy", output_path])
 
     return cmd, list_file_path
