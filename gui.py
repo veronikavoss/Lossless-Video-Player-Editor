@@ -30,6 +30,7 @@ from PySide6.QtGui import QPainter, QColor, QPolygon, QPen, QBrush, QIcon, QShor
 from PySide6.QtSvg import QSvgRenderer
 import mpv
 import video_cutter
+from i18n import tr, set_current_language, get_current_language, init_language, SUPPORTED_LANGUAGES
 
 def get_asset_path(filename):
     return os.path.join(ASSETS_DIR, filename).replace("\\", "/")
@@ -577,7 +578,7 @@ class ExportWorker(QThread):
                 break
                 
             cmd = task['cmd']
-            desc = task.get('desc', '작업 중...')
+            desc = task.get('desc', tr('dialog_preparing'))
             self.log.emit(desc)
             task_duration = task.get('duration_ms', 0)
             
@@ -592,7 +593,7 @@ class ExportWorker(QThread):
                     creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0
                 )
             except Exception as e:
-                fail_messages.append(f"{desc} 실행 실패: {e}")
+                fail_messages.append(f"{desc} - {tr('dialog_export_fail_title')}: {e}")
                 continue
 
             time_pattern = re.compile(r"time=(\d+):(\d+):(\d+\.\d+)")
@@ -609,7 +610,7 @@ class ExportWorker(QThread):
                 try:
                     line = self.process.stderr.readline()
                 except Exception as e:
-                    fail_messages.append(f"{desc} 로그 읽기 오류: {e}")
+                    fail_messages.append(f"{desc} - {tr('status_error')}: {e}")
                     break
                     
                 if not line and self.process.poll() is not None:
@@ -642,19 +643,19 @@ class ExportWorker(QThread):
             elif self.running:
                 err_summary = "\n".join(l for l in last_err_lines[-5:] if not l.startswith("frame=") and not l.startswith("size="))
                 if err_summary:
-                    fail_messages.append(f"{desc} 에러 발생:\n{err_summary}")
+                    fail_messages.append(f"{desc} - {tr('status_error')}:\n{err_summary}")
                 else:
-                    fail_messages.append(f"{desc} 에러 발생 (종료 코드: {self.process.returncode})")
+                    fail_messages.append(f"{desc} - {tr('status_error')} (code: {self.process.returncode})")
             
             completed_ms += task_duration
         
         if not self.running:
-            self.finished.emit(False, generated_files, "사용자에 의해 취소됨")
+            self.finished.emit(False, generated_files, tr("task_cancelled_user"))
         elif fail_messages:
             self.finished.emit(False, generated_files, "\n".join(fail_messages))
         else:
             self.progress.emit(100)
-            self.finished.emit(True, generated_files, "모든 작업 완료")
+            self.finished.emit(True, generated_files, tr("task_all_complete"))
 
     def cancel(self):
         self.running = False
@@ -668,7 +669,8 @@ class ExportWorker(QThread):
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("MKV Lossless Editor")
+        init_language()
+        self.setWindowTitle(tr("app_title"))
         icon_path = get_asset_path("icon.svg")
         self.setWindowIcon(QIcon(icon_path))
         
@@ -913,7 +915,7 @@ class MainWindow(QMainWindow):
         self.pre_frame_button.setIconSize(QSize(42, 36))
         self.pre_frame_button.setFixedSize(42, 36)
         self.pre_frame_button.setStyleSheet("background-color: transparent; border: none;")
-        self.pre_frame_button.setToolTip("1프레임 뒤로 (D)")
+        self.pre_frame_button.setToolTip(tr("tooltip_pre_frame"))
         self.pre_frame_button.clicked.connect(self.step_backward)
         self.pre_frame_button.setEnabled(False)
         self.controls_layout.addWidget(self.pre_frame_button)
@@ -925,7 +927,7 @@ class MainWindow(QMainWindow):
         self.rewind_button.setIconSize(QSize(42, 36))
         self.rewind_button.setFixedSize(42, 36)
         self.rewind_button.setStyleSheet("background-color: transparent; border: none;")
-        self.rewind_button.setToolTip("5초 뒤로 (←)")
+        self.rewind_button.setToolTip(tr("tooltip_rewind"))
         self.rewind_button.clicked.connect(self.skip_backward)
         self.rewind_button.setEnabled(False)
         self.controls_layout.addWidget(self.rewind_button)
@@ -938,7 +940,7 @@ class MainWindow(QMainWindow):
         self.play_button.setIconSize(QSize(42, 36))
         self.play_button.setFixedSize(42, 36)
         self.play_button.setStyleSheet("background-color: transparent; border: none;")
-        self.play_button.setToolTip("재생 / 닫힌 상태에선 열기 (Space)")
+        self.play_button.setToolTip(tr("tooltip_play_or_open"))
         self.play_button.clicked.connect(self.toggle_play)
         self.play_button.setEnabled(True) # 빈 상태일 때 눌러서 파일 열 수 있게 활성화 유지
         self.controls_layout.addWidget(self.play_button)
@@ -950,7 +952,7 @@ class MainWindow(QMainWindow):
         self.stop_button.setIconSize(QSize(42, 36))
         self.stop_button.setFixedSize(42, 36)
         self.stop_button.setStyleSheet("background-color: transparent; border: none;")
-        self.stop_button.setToolTip("정지 및 초기화 (Esc)")
+        self.stop_button.setToolTip(tr("tooltip_stop"))
         self.stop_button.clicked.connect(self.stop_and_clear)
         self.stop_button.setEnabled(False) # 비활성화 기본값
         self.controls_layout.addWidget(self.stop_button)
@@ -962,7 +964,7 @@ class MainWindow(QMainWindow):
         self.fast_forward_button.setIconSize(QSize(42, 36))
         self.fast_forward_button.setFixedSize(42, 36)
         self.fast_forward_button.setStyleSheet("background-color: transparent; border: none;")
-        self.fast_forward_button.setToolTip("5초 앞으로 (→)")
+        self.fast_forward_button.setToolTip(tr("tooltip_fast_forward"))
         self.fast_forward_button.clicked.connect(self.skip_forward)
         self.fast_forward_button.setEnabled(False)
         self.controls_layout.addWidget(self.fast_forward_button)
@@ -974,7 +976,7 @@ class MainWindow(QMainWindow):
         self.next_frame_button.setIconSize(QSize(42, 36))
         self.next_frame_button.setFixedSize(42, 36)
         self.next_frame_button.setStyleSheet("background-color: transparent; border: none;")
-        self.next_frame_button.setToolTip("1프레임 앞으로 (F)")
+        self.next_frame_button.setToolTip(tr("tooltip_next_frame"))
         self.next_frame_button.clicked.connect(self.step_forward)
         self.next_frame_button.setEnabled(False)
         self.controls_layout.addWidget(self.next_frame_button)
@@ -986,7 +988,7 @@ class MainWindow(QMainWindow):
         self.open_button.setIconSize(QSize(42, 36))
         self.open_button.setFixedSize(42, 36)
         self.open_button.setStyleSheet("background-color: transparent; border: none;")
-        self.open_button.setToolTip("파일 열기 (Ctrl+O)")
+        self.open_button.setToolTip(tr("tooltip_open"))
         self.open_button.clicked.connect(self.open_file)
         self.controls_layout.addWidget(self.open_button)
 
@@ -1002,7 +1004,7 @@ class MainWindow(QMainWindow):
         self.volume_button.setIconSize(QSize(24, 24))
         self.volume_button.setFixedSize(30, 30)
         self.volume_button.setStyleSheet("background-color: transparent; border: none;")
-        self.volume_button.setToolTip("음소거 토글 (M)")
+        self.volume_button.setToolTip(tr("tooltip_mute"))
         self.volume_button.setProperty("hover_color", "red")
         self.volume_button.clicked.connect(self.toggle_mute)
         self.controls_layout.addWidget(self.volume_button)
@@ -1029,7 +1031,7 @@ class MainWindow(QMainWindow):
         self.set_start_btn.setIconSize(QSize(42, 36))
         self.set_start_btn.setFixedSize(42, 36)
         self.set_start_btn.setStyleSheet("background-color: transparent; border: none;")
-        self.set_start_btn.setToolTip("시작점 ([)")
+        self.set_start_btn.setToolTip(tr("tooltip_set_start"))
         self.set_start_btn.setProperty("hover_color", "gold")
         self.set_start_btn.setEnabled(False)
         self.set_start_btn.clicked.connect(self.set_start_mark)
@@ -1041,7 +1043,7 @@ class MainWindow(QMainWindow):
         self.set_end_btn.setIconSize(QSize(42, 36))
         self.set_end_btn.setFixedSize(42, 36)
         self.set_end_btn.setStyleSheet("background-color: transparent; border: none;")
-        self.set_end_btn.setToolTip("끝점 (])")
+        self.set_end_btn.setToolTip(tr("tooltip_set_end"))
         self.set_end_btn.setProperty("hover_color", "gold")
         self.set_end_btn.setEnabled(False)
         self.set_end_btn.clicked.connect(self.set_end_mark)
@@ -1053,7 +1055,7 @@ class MainWindow(QMainWindow):
         self.move_start_point_btn.setIconSize(QSize(42, 36))
         self.move_start_point_btn.setFixedSize(42, 36)
         self.move_start_point_btn.setStyleSheet("background-color: transparent; border: none;")
-        self.move_start_point_btn.setToolTip("시작점으로 이동 (,)")
+        self.move_start_point_btn.setToolTip(tr("tooltip_jump_start"))
         self.move_start_point_btn.setProperty("hover_color", "gold")
         self.move_start_point_btn.clicked.connect(self.jump_to_start)
         self.move_start_point_btn.setEnabled(False)
@@ -1065,7 +1067,7 @@ class MainWindow(QMainWindow):
         self.move_end_point_btn.setIconSize(QSize(42, 36))
         self.move_end_point_btn.setFixedSize(42, 36)
         self.move_end_point_btn.setStyleSheet("background-color: transparent; border: none;")
-        self.move_end_point_btn.setToolTip("끝점으로 이동 (.)")
+        self.move_end_point_btn.setToolTip(tr("tooltip_jump_end"))
         self.move_end_point_btn.setProperty("hover_color", "gold")
         self.move_end_point_btn.clicked.connect(self.jump_to_end)
         self.move_end_point_btn.setEnabled(False)
@@ -1076,7 +1078,7 @@ class MainWindow(QMainWindow):
         self.inverse_btn.setIconSize(QSize(42, 36))
         self.inverse_btn.setFixedSize(42, 36)
         self.inverse_btn.setStyleSheet("background-color: transparent; border: none;")
-        self.inverse_btn.setToolTip("선택 영역 반전")
+        self.inverse_btn.setToolTip(tr("tooltip_inverse"))
         self.inverse_btn.setProperty("hover_color", "gold")
         self.inverse_btn.setEnabled(False)
         self.inverse_btn.clicked.connect(self.inverse_segments)
@@ -1087,18 +1089,18 @@ class MainWindow(QMainWindow):
         self.clear_btn.setIconSize(QSize(42, 36))
         self.clear_btn.setFixedSize(42, 36)
         self.clear_btn.setStyleSheet("background-color: transparent; border: none;")
-        self.clear_btn.setToolTip("선택 초기화")
+        self.clear_btn.setToolTip(tr("tooltip_clear"))
         self.clear_btn.setProperty("hover_color", "gold")
         self.clear_btn.setEnabled(False)
         self.clear_btn.clicked.connect(self.clear_segments)
         self.controls_layout.addWidget(self.clear_btn)
 
-        self.merge_checkbox = QCheckBox("다중 구간 병합 (Merge)")
+        self.merge_checkbox = QCheckBox(tr("merge_checkbox"))
         self.merge_checkbox.setStyleSheet("color: #cccccc;")
         self.merge_checkbox.setEnabled(False)
         self.controls_layout.addWidget(self.merge_checkbox)
 
-        self.export_btn = QPushButton("내보내기")
+        self.export_btn = QPushButton(tr("btn_export"))
         self.export_btn.clicked.connect(self.export_video)
         self.export_btn.setEnabled(False)
         self.controls_layout.addWidget(self.export_btn)
@@ -1114,7 +1116,7 @@ class MainWindow(QMainWindow):
         self.tracks_header_layout = QHBoxLayout()
         self.tracks_header_layout.setContentsMargins(0, 0, 0, 0)
         
-        self.tracks_label = QLabel("트랙, 챕터와 태그")
+        self.tracks_label = QLabel(tr("label_tracks"))
         self.tracks_label.setStyleSheet("color: gold; font-weight: bold; margin-top: 4px; margin-bottom: 4px;")
         self.tracks_header_layout.addWidget(self.tracks_label)
         
@@ -1126,7 +1128,7 @@ class MainWindow(QMainWindow):
         self.btn_maximize.setFixedSize(20, 20)
         self.btn_maximize.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_maximize.setStyleSheet(f"QPushButton {{ background: transparent; border: none; border-image: url({assets_dir}/max_screen.svg); }} QPushButton:hover {{ border-image: url({assets_dir}/max_screen_hover.svg); }}")
-        self.btn_maximize.setToolTip("창 최대화 / 복원 (비디오 더블클릭)")
+        self.btn_maximize.setToolTip(tr("tooltip_maximize"))
         self.btn_maximize.clicked.connect(self.toggle_maximized)
         self.tracks_header_layout.addWidget(self.btn_maximize)
         
@@ -1134,7 +1136,7 @@ class MainWindow(QMainWindow):
         self.btn_fullscreen.setFixedSize(20, 20)
         self.btn_fullscreen.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_fullscreen.setStyleSheet(f"QPushButton {{ background: transparent; border: none; border-image: url({assets_dir}/full_screen.svg); }} QPushButton:hover {{ border-image: url({assets_dir}/full_screen_hover.svg); }}")
-        self.btn_fullscreen.setToolTip("순수 전체화면 모드 (Alt+Enter)")
+        self.btn_fullscreen.setToolTip(tr("tooltip_fullscreen"))
         self.btn_fullscreen.clicked.connect(self.toggle_true_fullscreen)
         self.tracks_header_layout.addWidget(self.btn_fullscreen)
         
@@ -1142,7 +1144,7 @@ class MainWindow(QMainWindow):
         
         self.tracks_table = QTableWidget(0, 9)
         self.tracks_table.setHorizontalHeaderLabels([
-            "", "유형", "코덱", "항목 복사", "언어", "이름", "ID", "기본 트랙", "Forced display"
+            tr("col_select"), tr("col_type"), tr("col_codec"), tr("col_copy"), tr("col_lang"), tr("col_name"), tr("col_id"), tr("col_default"), tr("col_forced")
         ])
         
         # Header configuration
@@ -1239,7 +1241,7 @@ class MainWindow(QMainWindow):
 
         # --- Left: Segments List Widget ---
         self.segments_layout = QVBoxLayout()
-        self.segments_label = QLabel("선택된 자르기 구간 목록")
+        self.segments_label = QLabel(tr("label_segments"))
         self.segments_label.setStyleSheet("color: gold; font-weight: bold; margin-top: 4px; margin-bottom: 4px;")
         self.segments_layout.addWidget(self.segments_label)
         
@@ -1256,7 +1258,7 @@ class MainWindow(QMainWindow):
 
         # --- Right: Multi-Merge Queue Widget ---
         self.merge_queue_layout = QVBoxLayout()
-        self.merge_queue_label = QLabel("다중 파일 병합 대기열")
+        self.merge_queue_label = QLabel(tr("label_merge_queue"))
         self.merge_queue_label.setStyleSheet("color: gold; font-weight: bold; margin-top: 4px; margin-bottom: 4px;")
         self.merge_queue_layout.addWidget(self.merge_queue_label)
         
@@ -1287,7 +1289,7 @@ class MainWindow(QMainWindow):
         self.bottom_panel_layout.addWidget(self.custom_status_bar)
         self.statusBar = lambda: self.custom_status_bar
 
-        self.statusBar().showMessage("준비 완료")
+        self.statusBar().showMessage(tr("status_ready"))
         self.statusBar().setStyleSheet("color: #cccccc; font-size: 12px;")
         self.statusBar().setMinimumHeight(20)
 
@@ -1353,6 +1355,117 @@ class MainWindow(QMainWindow):
 
         self.slider.hover_time_changed.connect(self.on_slider_hovered)
         self.slider.hover_left.connect(self.on_slider_leave)
+
+        self.retranslate_ui()
+
+    def change_language(self, lang_code):
+        if set_current_language(lang_code):
+            self.retranslate_ui()
+            self.statusBar().showMessage(tr("status_lang_changed", lang=SUPPORTED_LANGUAGES.get(lang_code, lang_code)))
+
+    def retranslate_ui(self):
+        # 1. Window Title
+        if getattr(self, 'file_path', None):
+            self.setWindowTitle(tr("app_title_file", name=os.path.basename(self.file_path)))
+        elif getattr(self, 'is_multi_merge_mode', False):
+            if hasattr(self, 'multi_merge_files') and len(self.multi_merge_files) > 0 and getattr(self, 'multi_merge_play_idx', -1) >= 0:
+                self.setWindowTitle(tr("multi_merge_title_idx", curr=self.multi_merge_play_idx+1, total=len(self.multi_merge_files)))
+            else:
+                self.setWindowTitle(tr("multi_merge_title"))
+        else:
+            self.setWindowTitle(tr("app_title"))
+            
+        # 2. Tooltips - Playback controls
+        self.pre_frame_button.setToolTip(tr("tooltip_pre_frame"))
+        self.rewind_button.setToolTip(tr("tooltip_rewind"))
+        self.stop_button.setToolTip(tr("tooltip_stop"))
+        self.fast_forward_button.setToolTip(tr("tooltip_fast_forward"))
+        self.next_frame_button.setToolTip(tr("tooltip_next_frame"))
+        self.open_button.setToolTip(tr("tooltip_open"))
+        self.set_start_btn.setToolTip(tr("tooltip_set_start"))
+        self.set_end_btn.setToolTip(tr("tooltip_set_end"))
+        self.move_start_point_btn.setToolTip(tr("tooltip_jump_start"))
+        self.move_end_point_btn.setToolTip(tr("tooltip_jump_end"))
+        self.inverse_btn.setToolTip(tr("tooltip_inverse"))
+        self.clear_btn.setToolTip(tr("tooltip_clear"))
+        self.btn_maximize.setToolTip(tr("tooltip_maximize"))
+        self.btn_fullscreen.setToolTip(tr("tooltip_fullscreen"))
+        
+        # Play / Volume dynamic tooltips
+        is_playing = False
+        try:
+            is_playing = not (self.player.pause if self.player.pause is not None else True)
+        except: pass
+        
+        if is_playing:
+            self.play_button.setToolTip(tr("tooltip_pause"))
+        elif getattr(self, 'file_path', None) or getattr(self, 'is_multi_merge_mode', False):
+            self.play_button.setToolTip(tr("tooltip_play"))
+        else:
+            self.play_button.setToolTip(tr("tooltip_play_or_open"))
+            
+        is_muted = False
+        try:
+            is_muted = getattr(self.player, 'mute', False)
+        except: pass
+        self.volume_button.setToolTip(tr("tooltip_unmute") if is_muted else tr("tooltip_mute"))
+        
+        # 3. Labels & Checkbox & Export Button
+        self.merge_checkbox.setText(tr("merge_checkbox"))
+        if getattr(self, 'is_multi_merge_mode', False):
+            self.export_btn.setText(tr("btn_start_merge"))
+            self.segments_label.setText(f"{tr('label_segments')}{tr('label_segments_merge_disabled')}")
+        else:
+            self.export_btn.setText(tr("btn_export"))
+            self.segments_label.setText(tr("label_segments"))
+            
+        self.tracks_label.setText(tr("label_tracks"))
+        self.merge_queue_label.setText(tr("label_merge_queue"))
+        
+        # 4. Tracks Table Headers
+        self.tracks_table.setHorizontalHeaderLabels([
+            tr("col_select"),
+            tr("col_type"),
+            tr("col_codec"),
+            tr("col_copy"),
+            tr("col_lang"),
+            tr("col_name"),
+            tr("col_id"),
+            tr("col_default"),
+            tr("col_forced")
+        ])
+        
+        # Update Table item texts
+        for row in range(self.tracks_table.rowCount()):
+            type_item = self.tracks_table.item(row, 1)
+            if type_item:
+                raw_type = type_item.data(Qt.ItemDataRole.UserRole)
+                if raw_type:
+                    lbl = tr("type_video") if raw_type == "video" else tr("type_audio") if raw_type == "audio" else tr("type_sub") if raw_type == "subtitle" else raw_type
+                    type_item.setText(lbl)
+            copy_item = self.tracks_table.item(row, 3)
+            if copy_item:
+                copy_item.setText(tr("yes"))
+            default_item = self.tracks_table.item(row, 7)
+            if default_item:
+                is_def = default_item.data(Qt.ItemDataRole.UserRole)
+                default_item.setText(tr("yes") if is_def else tr("no"))
+            forced_item = self.tracks_table.item(row, 8)
+            if forced_item:
+                is_forced = forced_item.data(Qt.ItemDataRole.UserRole)
+                forced_item.setText(tr("yes") if is_forced else tr("no"))
+                
+        # 5. Segments List
+        self.update_segments_list()
+        
+        # 6. Merge Queue items tooltips
+        for row in range(self.merge_queue_list.count()):
+            item = self.merge_queue_list.item(row)
+            w = self.merge_queue_list.itemWidget(item)
+            if w and hasattr(w, 'btn_up'):
+                w.btn_up.setToolTip(tr("tooltip_item_up"))
+                w.btn_down.setToolTip(tr("tooltip_item_down"))
+                w.btn_delete.setToolTip(tr("tooltip_item_delete"))
 
     def on_slider_hovered(self, val, global_pos):
         if not hasattr(self, 'file_path') or not self.file_path or self._mpv_dur_ms() <= 0:
@@ -1527,7 +1640,7 @@ class MainWindow(QMainWindow):
             self.bottom_panel.show()
             self.showNormal()
             if hasattr(self, 'menubar') and self.menubar: self.menubar.show()
-            self.statusBar().showMessage("기본 화면으로 복귀")
+            self.statusBar().showMessage(tr("status_normal"))
             if hasattr(self, 'btn_fullscreen'):
                 self.btn_fullscreen.setStyleSheet(f"QPushButton {{ background: transparent; border: none; border-image: url({assets_dir}/full_screen.svg); }} QPushButton:hover {{ border-image: url({assets_dir}/full_screen_hover.svg); }}")
             self.central_widget.updateGeometry()
@@ -1548,7 +1661,7 @@ class MainWindow(QMainWindow):
             self.bottom_panel.show()
             self.showMaximized()
             if hasattr(self, 'menubar') and self.menubar: self.menubar.show()
-            self.statusBar().showMessage("최대화 모드")
+            self.statusBar().showMessage(tr("status_maximized"))
             if hasattr(self, 'btn_fullscreen'):
                 self.btn_fullscreen.setStyleSheet(f"QPushButton {{ background: transparent; border: none; border-image: url({assets_dir}/full_screen.svg); }} QPushButton:hover {{ border-image: url({assets_dir}/full_screen_hover.svg); }}")
             self.central_widget.updateGeometry()
@@ -1557,12 +1670,12 @@ class MainWindow(QMainWindow):
 
         if self.isMaximized():
             self.showNormal()
-            self.statusBar().showMessage("기본 화면으로 복귀")
+            self.statusBar().showMessage(tr("status_normal"))
             if hasattr(self, 'btn_maximize'):
                 self.btn_maximize.setStyleSheet(f"QPushButton {{ background: transparent; border: none; border-image: url({assets_dir}/max_screen.svg); }} QPushButton:hover {{ border-image: url({assets_dir}/max_screen_hover.svg); }}")
         else:
             self.showMaximized()
-            self.statusBar().showMessage("최대화 모드")
+            self.statusBar().showMessage(tr("status_maximized"))
             if hasattr(self, 'btn_maximize'):
                 self.btn_maximize.setStyleSheet(f"QPushButton {{ background: transparent; border: none; border-image: url({assets_dir}/min_screen.svg); }} QPushButton:hover {{ border-image: url({assets_dir}/min_screen_hover.svg); }}")
 
@@ -1581,7 +1694,7 @@ class MainWindow(QMainWindow):
             self.statusBar().setMaximumHeight(16777215) # Restore height
             self.statusBar().show()
             if hasattr(self, 'menubar') and self.menubar: self.menubar.show()
-            self.statusBar().showMessage("기본 화면으로 복귀")
+            self.statusBar().showMessage(tr("status_normal"))
             if hasattr(self, 'btn_fullscreen'):
                 self.btn_fullscreen.setStyleSheet(f"QPushButton {{ background: transparent; border: none; border-image: url({assets_dir}/full_screen.svg); }} QPushButton:hover {{ border-image: url({assets_dir}/full_screen_hover.svg); }}")
             self.central_widget.updateGeometry()
@@ -1607,7 +1720,7 @@ class MainWindow(QMainWindow):
             self.bottom_panel_layout.setContentsMargins(ml, mt, mr, mb)
             
             # Message must be set before hiding so it's ready when auto-hiding triggers
-            self.statusBar().showMessage("전체화면 모드")
+            self.statusBar().showMessage(tr("status_fullscreen"))
             
             self.bottom_panel.hide()
             self.top_panel.hide()
@@ -1623,7 +1736,7 @@ class MainWindow(QMainWindow):
         valid_files = [f for f in file_paths if os.path.splitext(f)[1].lower() in valid_extensions]
         
         if not valid_files:
-            QMessageBox.warning(self, "지원하지 않는 파일", "비디오 파일(.mkv, .mp4, .avi)만 열 수 있습니다.")
+            QMessageBox.warning(self, tr("dialog_unsupported_title"), tr("dialog_unsupported_msg"))
             return
 
         if len(valid_files) == 1:
@@ -1633,7 +1746,7 @@ class MainWindow(QMainWindow):
 
     def open_file(self):
         file_dialog = QFileDialog(self)
-        file_dialog.setNameFilters(["Video files (*.mkv *.mp4 *.avi)"])
+        file_dialog.setNameFilters([f"{tr('filter_video_files')} (*.mkv *.mp4 *.avi)", f"{tr('filter_all_files')} (*.*)"])
         file_dialog.setFileMode(QFileDialog.FileMode.ExistingFiles)
         if file_dialog.exec():
             files = file_dialog.selectedFiles()
@@ -1650,10 +1763,10 @@ class MainWindow(QMainWindow):
         
         self._refresh_merge_queue_ui()
             
-        self.setWindowTitle("MKV Lossless Cutter - 다중 파일 병합 모드")
+        self.setWindowTitle(tr("multi_merge_title"))
         self.export_btn.setEnabled(True)
-        self.export_btn.setText("병합 시작")
-        self.statusBar().showMessage(f"{len(files)}개의 파일이 병합 대기열에 추가되었습니다.")
+        self.export_btn.setText(tr("btn_start_merge"))
+        self.statusBar().showMessage(tr("status_files_added", count=len(files)))
 
         self.play_button.setEnabled(True)
         self.stop_button.setEnabled(True)
@@ -1667,7 +1780,7 @@ class MainWindow(QMainWindow):
         self.set_end_btn.setEnabled(False)
         self.inverse_btn.setEnabled(False)
         self.clear_btn.setEnabled(False)
-        self.segments_label.setText('선택된 자르기 구간 목록 <span style="color: #ff6666;">(병합 모드 - 구간 설정 불가)</span>')
+        self.segments_label.setText(f"{tr('label_segments')}{tr('label_segments_merge_disabled')}")
         self.slider.setEnabled(True)
         
         # 첫 번째 영상부터 재생 시작
@@ -1688,7 +1801,7 @@ class MainWindow(QMainWindow):
             self.play_video()
             self.merge_queue_list.setCurrentRow(index)
             self.top_title_label.setText(os.path.basename(file_path))
-            self.setWindowTitle(f"MKV Lossless Cutter - 다중 파일 미리보기 ({index+1}/{len(self.multi_merge_files)})")
+            self.setWindowTitle(tr("multi_merge_title_idx", curr=index+1, total=len(self.multi_merge_files)))
 
     def play_multi_merge_item(self, item):
         if not self.is_multi_merge_mode: return
@@ -1719,9 +1832,9 @@ class MainWindow(QMainWindow):
         self.set_end_btn.setEnabled(True)
         self.inverse_btn.setEnabled(True)
         self.clear_btn.setEnabled(True)
-        self.segments_label.setText("선택된 자르기 구간 목록")
+        self.segments_label.setText(tr("label_segments"))
         self.play_video()
-        self.setWindowTitle(f"MKV Lossless Cutter - {os.path.basename(self.file_path)}")
+        self.setWindowTitle(tr("app_title_file", name=os.path.basename(self.file_path)))
         
         # Reset selection
         self.start_time = 0
@@ -1736,7 +1849,7 @@ class MainWindow(QMainWindow):
         self.load_tracks_to_table(self.file_path)
         
         self.check_export_ready()
-        self.statusBar().showMessage(f"파일 불러옴: {os.path.basename(self.file_path)}")
+        self.statusBar().showMessage(tr("status_file_loaded", name=os.path.basename(self.file_path)))
 
     def stop_and_clear(self):
         self.is_multi_merge_mode = False
@@ -1747,7 +1860,7 @@ class MainWindow(QMainWindow):
         
         self.play_button.setEnabled(True) # 빈 상태일 때 누를 수 있게 유지 (클릭 시 파일 열기)
         self.play_button.setIcon(self.play_icon)
-        self.play_button.setToolTip("재생 / 파일 새로 열기")
+        self.play_button.setToolTip(tr("tooltip_play_or_open"))
         self.stop_button.setEnabled(False)
         self.rewind_button.setEnabled(False)
         self.pre_frame_button.setEnabled(False)
@@ -1759,11 +1872,11 @@ class MainWindow(QMainWindow):
         self.set_end_btn.setEnabled(False)
         self.inverse_btn.setEnabled(False)
         self.clear_btn.setEnabled(False)
-        self.segments_label.setText("선택된 자르기 구간 목록")
+        self.segments_label.setText(tr("label_segments"))
         self.multi_merge_play_idx = -1
         self.merge_queue_list.clear()
-        self.export_btn.setText("내보내기")
-        self.setWindowTitle("MKV Lossless Cutter")
+        self.export_btn.setText(tr("btn_export"))
+        self.setWindowTitle(tr("app_title"))
         
         # UI 및 타임라인 초기화
         self.slider.setEnabled(True)
@@ -1784,7 +1897,7 @@ class MainWindow(QMainWindow):
         if hasattr(self, 'thumbnail_thread') and self.thumbnail_thread:
             self.thumbnail_thread.clear_cache()
             self.thumbnail_thread.clear_queue()
-        self.statusBar().showMessage("준비 완료")
+        self.statusBar().showMessage(tr("status_ready"))
 
     def set_button_icon(self, btn, icon, tooltip=None):
         btn._icon_normal_backup = icon
@@ -1804,11 +1917,11 @@ class MainWindow(QMainWindow):
 
     def media_state_changed(self, is_playing):
         if is_playing:
-            self.set_button_icon(self.play_button, self.pause_icon, "일시정지")
-            self.statusBar().showMessage("재생")
+            self.set_button_icon(self.play_button, self.pause_icon, tr("tooltip_pause"))
+            self.statusBar().showMessage(tr("status_playing"))
         else:
-            self.set_button_icon(self.play_button, self.play_icon, "재생")
-            self.statusBar().showMessage("일시정지")
+            self.set_button_icon(self.play_button, self.play_icon, tr("tooltip_play"))
+            self.statusBar().showMessage(tr("status_paused"))
 
     def toggle_play(self):
         if not self.file_path and not self.is_multi_merge_mode:
@@ -1836,8 +1949,7 @@ class MainWindow(QMainWindow):
         try:
             current_vis = getattr(self.player, 'sub_visibility', True)
             self.player.sub_visibility = not current_vis
-            state_str = "보이기" if not current_vis else "끄기"
-            self.statusBar().showMessage(f"자막 {state_str}")
+            self.statusBar().showMessage(tr("status_sub_show") if not current_vis else tr("status_sub_hide"))
         except:
             pass
 
@@ -1872,18 +1984,18 @@ class MainWindow(QMainWindow):
             }
         """)
 
-        act_open = menu.addAction("파일 열기... (Ctrl+O)")
+        act_open = menu.addAction(tr("menu_open"))
         act_open.triggered.connect(self.open_file)
         menu.addSeparator()
 
-        act_play = menu.addAction("재생 / 일시정지 (Space)")
+        act_play = menu.addAction(tr("menu_play_pause"))
         act_play.triggered.connect(self.toggle_play)
 
-        act_stop = menu.addAction("정지 (S)")
+        act_stop = menu.addAction(tr("menu_stop"))
         act_stop.triggered.connect(self.stop_playback)
         menu.addSeparator()
 
-        audio_menu = QMenu("오디오", menu)
+        audio_menu = QMenu(tr("menu_audio"), menu)
         audio_menu.setWindowFlags(audio_menu.windowFlags() | Qt.WindowType.FramelessWindowHint | Qt.WindowType.NoDropShadowWindowHint)
         audio_menu.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         audio_menu.setStyleSheet(menu.styleSheet())
@@ -1892,7 +2004,7 @@ class MainWindow(QMainWindow):
         try: current_mute = getattr(self.player, 'mute', False)
         except: pass
         
-        act_mute_toggle = audio_menu.addAction("음소거")
+        act_mute_toggle = audio_menu.addAction(tr("menu_mute"))
         act_mute_toggle.setCheckable(True)
         act_mute_toggle.setChecked(bool(current_mute))
         act_mute_toggle.triggered.connect(self.toggle_mute)
@@ -1910,7 +2022,7 @@ class MainWindow(QMainWindow):
                         aud_tracks.append(t)
         except: pass
         
-        current_aud_title = "없음"
+        current_aud_title = tr("menu_none")
         if str(current_aid).isdigit():
             for t in aud_tracks:
                 if str(t.get('id')) == str(current_aid):
@@ -1918,18 +2030,18 @@ class MainWindow(QMainWindow):
                     lang = t.get('lang')
                     if title and lang: current_aud_title = f"{title} [{lang}]"
                     elif title: current_aud_title = title
-                    elif lang: current_aud_title = f"트랙 {t.get('id')} [{lang}]"
-                    else: current_aud_title = f"트랙 {t.get('id')}"
+                    elif lang: current_aud_title = f"{tr('menu_track_format', id=t.get('id'))} [{lang}]"
+                    else: current_aud_title = tr('menu_track_format', id=t.get('id'))
                     break
                     
-        act_current_aud = audio_menu.addAction(f"현재 재생중인 오디오: {current_aud_title}")
+        act_current_aud = audio_menu.addAction(tr("menu_current_audio", title=current_aud_title))
         act_current_aud.setCheckable(True)
         act_current_aud.setChecked(str(current_aid).isdigit())
         act_current_aud.setEnabled(False)
         
         audio_menu.addSeparator()
         
-        act_aid_none = audio_menu.addAction("사용 안 함")
+        act_aid_none = audio_menu.addAction(tr("menu_not_used"))
         act_aid_none.setCheckable(True)
         act_aid_none.setChecked(not str(current_aid).isdigit())
         act_aid_none.triggered.connect(lambda: setattr(self.player, 'aid', 'no'))
@@ -1941,7 +2053,7 @@ class MainWindow(QMainWindow):
             label_parts = []
             if title: label_parts.append(title)
             if lang: label_parts.append(f"[{lang}]")
-            label = " ".join(label_parts) if label_parts else f"트랙 {tid}"
+            label = " ".join(label_parts) if label_parts else tr("menu_track_format", id=tid)
             act_t = audio_menu.addAction(label)
             act_t.setCheckable(True)
             act_t.setChecked(str(tid) == str(current_aid))
@@ -1949,29 +2061,26 @@ class MainWindow(QMainWindow):
             
         menu.addMenu(audio_menu)
 
-        sub_menu = QMenu("자막", menu)
+        sub_menu = QMenu(tr("menu_sub"), menu)
         sub_menu.setWindowFlags(sub_menu.windowFlags() | Qt.WindowType.FramelessWindowHint | Qt.WindowType.NoDropShadowWindowHint)
         sub_menu.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
-        # Inherit styling from parent menu
         sub_menu.setStyleSheet(menu.styleSheet())
         
-        act_open_sub = sub_menu.addAction("자막 열기...")
+        act_open_sub = sub_menu.addAction(tr("menu_open_sub"))
         act_open_sub.triggered.connect(self.open_external_sub)
         sub_menu.addSeparator()
         
-        # 1. (체크) 자막 보이기
         current_vis = True
         try: current_vis = getattr(self.player, 'sub_visibility', True)
         except: pass
         
-        act_sub_toggle = sub_menu.addAction("자막 보이기")
+        act_sub_toggle = sub_menu.addAction(tr("menu_show_sub"))
         act_sub_toggle.setCheckable(True)
         act_sub_toggle.setChecked(bool(current_vis))
         act_sub_toggle.triggered.connect(self.toggle_subtitles)
         
         sub_menu.addSeparator()
         
-        # Determine subtitle tracks and current sid from MPV
         sub_tracks = []
         current_sid = None
         try:
@@ -1984,7 +2093,7 @@ class MainWindow(QMainWindow):
         except:
             pass
             
-        current_sub_title = "없음"
+        current_sub_title = tr("menu_none")
         if str(current_sid).isdigit():
             for t in sub_tracks:
                 if str(t.get('id')) == str(current_sid):
@@ -1995,21 +2104,19 @@ class MainWindow(QMainWindow):
                     elif title:
                         current_sub_title = title
                     elif lang:
-                        current_sub_title = f"트랙 {t.get('id')} [{lang}]"
+                        current_sub_title = f"{tr('menu_track_format', id=t.get('id'))} [{lang}]"
                     else:
-                        current_sub_title = f"트랙 {t.get('id')}"
+                        current_sub_title = tr('menu_track_format', id=t.get('id'))
                     break
         
-        # 3. (체크) 현재 재생중인 자막
-        act_current_sub = sub_menu.addAction(f"현재 재생중인 자막: {current_sub_title}")
+        act_current_sub = sub_menu.addAction(tr("menu_current_sub", title=current_sub_title))
         act_current_sub.setCheckable(True)
         act_current_sub.setChecked(str(current_sid).isdigit())
-        act_current_sub.setEnabled(False) # Display only
+        act_current_sub.setEnabled(False)
         
         sub_menu.addSeparator()
         
-        # 5. 파일에 내장된 자막 리스트
-        act_sid_none = sub_menu.addAction("사용 안 함")
+        act_sid_none = sub_menu.addAction(tr("menu_not_used"))
         act_sid_none.setCheckable(True)
         act_sid_none.setChecked(not str(current_sid).isdigit())
         act_sid_none.triggered.connect(lambda: setattr(self.player, 'sid', 'no'))
@@ -2023,7 +2130,7 @@ class MainWindow(QMainWindow):
             if title: label_parts.append(title)
             if lang: label_parts.append(f"[{lang}]")
             
-            label = " ".join(label_parts) if label_parts else f"트랙 {tid}"
+            label = " ".join(label_parts) if label_parts else tr("menu_track_format", id=tid)
             
             act_t = sub_menu.addAction(label)
             act_t.setCheckable(True)
@@ -2033,18 +2140,34 @@ class MainWindow(QMainWindow):
         menu.addMenu(sub_menu)
         menu.addSeparator()
 
+        # Language Selection Submenu
+        lang_menu = QMenu(tr("menu_language"), menu)
+        lang_menu.setWindowFlags(lang_menu.windowFlags() | Qt.WindowType.FramelessWindowHint | Qt.WindowType.NoDropShadowWindowHint)
+        lang_menu.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        lang_menu.setStyleSheet(menu.styleSheet())
+        
+        curr_lang = get_current_language()
+        for code, name in SUPPORTED_LANGUAGES.items():
+            act_lang = lang_menu.addAction(name)
+            act_lang.setCheckable(True)
+            act_lang.setChecked(code == curr_lang)
+            act_lang.triggered.connect(lambda checked=False, c=code: self.change_language(c))
+            
+        menu.addMenu(lang_menu)
+        menu.addSeparator()
+
         if getattr(self, '_is_true_fullscreen', False):
-            act_full = menu.addAction("기본 화면 (Alt+Enter)")
+            act_full = menu.addAction(tr("menu_normal_screen"))
         else:
-            act_full = menu.addAction("전체 화면 (Alt+Enter)")
+            act_full = menu.addAction(tr("menu_fullscreen"))
         act_full.triggered.connect(self.toggle_true_fullscreen)
         menu.addSeparator()
 
-        act_shortcuts = menu.addAction("단축키 안내")
+        act_shortcuts = menu.addAction(tr("menu_shortcuts"))
         act_shortcuts.triggered.connect(self.show_shortcuts_guide)
         menu.addSeparator()
 
-        act_exit = menu.addAction("종료 (Esc)")
+        act_exit = menu.addAction(tr("menu_exit"))
         act_exit.triggered.connect(self.close)
 
         global_pos = self.video_widget.mapToGlobal(pos)
@@ -2052,20 +2175,8 @@ class MainWindow(QMainWindow):
 
     def show_shortcuts_guide(self):
         msg = QMessageBox(self)
-        msg.setWindowTitle("단축키 안내")
-        msg.setText(
-            "<b>단축키 목록</b><br><br>"
-            "<b>Space</b> : 재생 / 일시정지<br>"
-            "<b>Esc</b> : 정지 / 영상 닫기 / 전체화면 해제<br>"
-            "<b>← / →</b> : 5초 이동<br>"
-            "<b>D / F</b> : 1프레임 이동<br>"
-            "<b>[ / ]</b> : 시작점 / 끝점 설정<br>"
-            "<b>, / .</b> : 시작점 / 끝점으로 이동<br>"
-            "<b>M</b> : 음소거 토글<br>"
-            "<b>위/아래 방향키</b> : 볼륨 조절<br>"
-            "<b>Alt+Enter</b> : 전체화면 전환<br>"
-            "<b>Ctrl+O</b> : 파일 열기<br>"
-        )
+        msg.setWindowTitle(tr("shortcuts_title"))
+        msg.setText(tr("shortcuts_html"))
         msg.setStyleSheet("QLabel { color: #e0e0e0; font-size: 13px; } QMessageBox { background-color: #2b2b2b; }")
         msg.exec()
 
@@ -2073,17 +2184,17 @@ class MainWindow(QMainWindow):
         if not hasattr(self, 'player') or not self.player: return
         file_path, _ = QFileDialog.getOpenFileName(
             self,
-            "자막 파일 열기",
+            tr("dialog_open_sub"),
             os.path.dirname(self.file_path) if getattr(self, 'file_path', None) else "",
-            "자막 파일 (*.srt *.ass *.vtt *.smi *.sub);;모든 파일 (*.*)"
+            f"{tr('filter_sub_files')} (*.srt *.ass *.vtt *.smi *.sub);;{tr('filter_all_files')} (*.*)"
         )
         if file_path:
             try:
                 self.player.command('sub-add', file_path)
-                self.statusBar().showMessage(f"외부 자막 적용됨: {os.path.basename(file_path)}")
+                self.statusBar().showMessage(tr("status_external_sub", name=os.path.basename(file_path)))
                 self.player.sub_visibility = True
             except Exception as e:
-                QMessageBox.warning(self, "자막 열기 실패", f"자막 파일을 적용할 수 없습니다:\n{e}")
+                QMessageBox.warning(self, tr("dialog_sub_fail_title"), tr("dialog_sub_fail_msg", error=e))
 
     def toggle_mute(self):
         try:
@@ -2098,16 +2209,16 @@ class MainWindow(QMainWindow):
             if hasattr(self.volume_button, "_icon_normal_backup"):
                 self.volume_button._icon_normal_backup = self.volume_mute_icon
                 
-            self.volume_button.setToolTip("음소거 해제")
-            self.statusBar().showMessage("음소거 설정됨")
+            self.volume_button.setToolTip(tr("tooltip_unmute"))
+            self.statusBar().showMessage(tr("status_muted"))
         else:
             self.volume_button.setIcon(self.volume_icon)
             self.volume_button.setProperty("hover_color", "red")
             if hasattr(self.volume_button, "_icon_normal_backup"):
                 self.volume_button._icon_normal_backup = self.volume_icon
                 
-            self.volume_button.setToolTip("음소거 토글")
-            self.statusBar().showMessage("음소거 해제됨")
+            self.volume_button.setToolTip(tr("tooltip_mute"))
+            self.statusBar().showMessage(tr("status_unmuted"))
 
     def volume_up(self):
         val = min(100, self.volume_slider.value() + 5)
@@ -2136,12 +2247,12 @@ class MainWindow(QMainWindow):
             self.volume_button.setIcon(self.volume_mute_icon)
             try: self.player.mute = True
             except: pass
-            self.statusBar().showMessage("음소거 설정됨")
+            self.statusBar().showMessage(tr("status_muted"))
         else:
             self.volume_button.setIcon(self.volume_icon)
             try: self.player.mute = False
             except: pass
-            self.statusBar().showMessage(f"볼륨: {value}%")
+            self.statusBar().showMessage(tr("status_volume", value=value))
             
     def set_position(self, position):
         try:
@@ -2155,7 +2266,7 @@ class MainWindow(QMainWindow):
                 self.player.frame_back_step()
             except:
                 pass
-            self.statusBar().showMessage("1프레임 뒤로")
+            self.statusBar().showMessage(tr("status_step_back"))
 
     def skip_backward(self):
         if self.file_path:
@@ -2163,7 +2274,7 @@ class MainWindow(QMainWindow):
                 self.player.seek(-5, "relative")
             except:
                 pass
-            self.statusBar().showMessage("5초 뒤로")
+            self.statusBar().showMessage(tr("status_skip_back"))
 
     def skip_forward(self):
         if self.file_path:
@@ -2171,7 +2282,7 @@ class MainWindow(QMainWindow):
                 self.player.seek(5, "relative")
             except:
                 pass
-            self.statusBar().showMessage("5초 앞으로")
+            self.statusBar().showMessage(tr("status_skip_fwd"))
 
     def step_forward(self):
         if self.file_path:
@@ -2179,7 +2290,7 @@ class MainWindow(QMainWindow):
                 self.player.frame_step()
             except:
                 pass
-            self.statusBar().showMessage("1프레임 앞으로")
+            self.statusBar().showMessage(tr("status_step_fwd"))
 
     def jump_to_start(self):
         if getattr(self, 'is_multi_merge_mode', False): return
@@ -2248,10 +2359,10 @@ class MainWindow(QMainWindow):
             except:
                 pass
             self.play_button.setIcon(self.pause_icon)
-            self.play_button.setToolTip("일시정지")
+            self.play_button.setToolTip(tr("tooltip_pause"))
         else:
             self.play_button.setIcon(self.play_icon)
-            self.play_button.setToolTip("재생")
+            self.play_button.setToolTip(tr("tooltip_play"))
 
     def position_changed(self, position):
         if not self.is_slider_pressed:
@@ -2339,21 +2450,23 @@ class MainWindow(QMainWindow):
         # 우선 현재 마킹 중인 (저장 대기) 구간 표시
         if self.start_time > 0 or self.end_time > 0:
             start_str = self.format_time(self.start_time) if self.start_time > 0 else "00:00:00"
-            end_str = self.format_time(self.end_time) if self.end_time > 0 else "미지정"
-            text = f"> 현재 활성화: {start_str} ~ {end_str}"
+            end_str = self.format_time(self.end_time) if self.end_time > 0 else tr("segment_unspecified")
+            text = tr("segment_active_prefix", start=start_str, end=end_str)
             item = QListWidgetItem()
             item.setSizeHint(QSize(0, 32))
             item.setData(Qt.ItemDataRole.UserRole, int(self.start_time))
+            item.setData(Qt.ItemDataRole.UserRole + 1, "active")
             self.segments_list.addItem(item)
             widget = SegmentItemWidget(text, item, self)
             self.segments_list.setItemWidget(item, widget)
             
         # 저장된 전체 구간 리스트 표시
         for i, (s, e) in enumerate(self.segments):
-            text = f"구간 {i+1}: {self.format_time(s)} ~ {self.format_time(e)}"
+            text = f"{tr('segment_prefix')} {i+1}: {self.format_time(s)} ~ {self.format_time(e)}"
             item = QListWidgetItem()
             item.setSizeHint(QSize(0, 32))
             item.setData(Qt.ItemDataRole.UserRole, int(s))
+            item.setData(Qt.ItemDataRole.UserRole + 1, "saved")
             self.segments_list.addItem(item)
             widget = SegmentItemWidget(text, item, self)
             self.segments_list.setItemWidget(item, widget)
@@ -2370,7 +2483,6 @@ class MainWindow(QMainWindow):
         if start_ms is None:
             widget = self.segments_list.itemWidget(item)
             text = widget.label.text() if (widget and hasattr(widget, 'label')) else item.text()
-            # 예: "구간 1: 00:00:10 ~ 00:00:20" 또는 "> 현재 활성화: 00:00:10 ~ 미지정"
             if ": " in text and " ~ " in text:
                 try:
                     time_part = text.split(": ", 1)[1].split(" ~ ")[0]
@@ -2384,7 +2496,7 @@ class MainWindow(QMainWindow):
         if start_ms is not None and self.file_path:
             self.set_position(start_ms)
             self.slider.setValue(start_ms)
-            self.statusBar().showMessage(f"구간 시작점으로 이동: {self.format_time(start_ms)}")
+            self.statusBar().showMessage(tr("status_jump_start", time=self.format_time(start_ms)))
 
     def delete_selected_segment(self):
         selected_items = self.segments_list.selectedItems()
@@ -2394,15 +2506,15 @@ class MainWindow(QMainWindow):
     def delete_segment_by_obj(self, item):
         row = self.segments_list.row(item)
         if row == -1: return
-        widget = self.segments_list.itemWidget(item)
-        text = widget.label.text() if (widget and hasattr(widget, 'label')) else item.text()
+        item_role = item.data(Qt.ItemDataRole.UserRole + 1)
+        has_active = (self.start_time > 0 or self.end_time > 0)
         
-        if "> 현재 활성화" in text:
+        if item_role == "active" or (row == 0 and has_active):
             # 현재 활성화된 마커 취소
             self.start_time = 0
             self.end_time = 0
             self.slider.set_current_selection(-1, -1)
-            self.statusBar().showMessage("현재 임시 설정 구간이 취소/삭제 되었습니다.")
+            self.statusBar().showMessage(tr("status_active_cleared"))
         else:
             # 저장된 구간 삭제. offset 확인 필요.
             list_idx = row
@@ -2413,7 +2525,7 @@ class MainWindow(QMainWindow):
             if 0 <= list_idx < len(self.segments):
                 self.segments.pop(list_idx)
                 self.slider.set_segments(self.segments)
-                self.statusBar().showMessage(f"구간 {list_idx+1} 항목이 삭제되었습니다.")
+                self.statusBar().showMessage(tr("status_segment_deleted", idx=list_idx+1))
 
         self.update_segments_list()
         self.check_export_ready()
@@ -2482,7 +2594,7 @@ class MainWindow(QMainWindow):
             if self.multi_merge_play_idx == row:
                 self.stop_playback()
                 self.multi_merge_play_idx = -1
-                self.setWindowTitle("MKV Lossless Cutter - 다중 파일 병합 모드")
+                self.setWindowTitle(tr("multi_merge_title"))
             elif self.multi_merge_play_idx > row:
                 self.multi_merge_play_idx -= 1
             self._refresh_merge_queue_ui()
@@ -2495,21 +2607,22 @@ class MainWindow(QMainWindow):
         item = selected_items[0]
         self.delete_queue_item_by_obj(item)
         
-    def filter_by_type(self, text):
+    def filter_by_type(self, target_type):
         self._updating_all_tracks = True
         
-        target = text
-        if text == "유형(전체)":
-            target = "전체"
-            
         for row in range(self.tracks_table.rowCount()):
             item = self.tracks_table.item(row, 0)
             type_item = self.tracks_table.item(row, 1)
             if item and type_item:
-                if target == "전체":
+                raw_type = type_item.data(Qt.ItemDataRole.UserRole)
+                if not raw_type:
+                    txt = type_item.text()
+                    raw_type = "video" if txt in ["비디오", "Video", "動画", "视频"] else "audio" if txt in ["오디오", "Audio", "音声", "音频"] else "subtitle" if txt in ["자막", "Subtitle", "字幕"] else txt
+                    
+                if target_type == "all":
                     item.setCheckState(Qt.CheckState.Checked)
                 else:
-                    if type_item.text() == target:
+                    if raw_type == target_type:
                         item.setCheckState(Qt.CheckState.Checked)
                     else:
                         item.setCheckState(Qt.CheckState.Unchecked)
@@ -2525,21 +2638,21 @@ class MainWindow(QMainWindow):
             menu = QMenu(self)
             menu.setStyleSheet("QMenu { background-color: #2b2b2b; color: white; border: 1px solid #444; } QMenu::item:selected { background-color: #555; }")
             
-            act_all = menu.addAction("유형 전체 선택")
+            act_all = menu.addAction(tr("menu_type_all"))
             menu.addSeparator()
-            act_vid = menu.addAction("비디오만 선택")
-            act_aud = menu.addAction("오디오만 선택")
-            act_sub = menu.addAction("자막만 선택")
+            act_vid = menu.addAction(tr("menu_type_vid"))
+            act_aud = menu.addAction(tr("menu_type_aud"))
+            act_sub = menu.addAction(tr("menu_type_sub"))
             
             action = menu.exec(QCursor.pos())
             if action == act_all:
-                self.filter_by_type("전체")
+                self.filter_by_type("all")
             elif action == act_vid:
-                self.filter_by_type("비디오")
+                self.filter_by_type("video")
             elif action == act_aud:
-                self.filter_by_type("오디오")
+                self.filter_by_type("audio")
             elif action == act_sub:
-                self.filter_by_type("자막")
+                self.filter_by_type("subtitle")
 
     def update_header_widgets_geometry(self, *args):
         header = self.tracks_table.horizontalHeader()
@@ -2581,12 +2694,12 @@ class MainWindow(QMainWindow):
     def check_export_ready(self, item=None):
         if self.is_multi_merge_mode:
             self.export_btn.setEnabled(len(self.multi_merge_files) > 1)
-            self.export_btn.setText("병합 시작")
+            self.export_btn.setText(tr("btn_start_merge"))
             return
             
         if not self.file_path:
             self.export_btn.setEnabled(False)
-            self.export_btn.setText("내보내기")
+            self.export_btn.setText(tr("btn_export"))
             return
 
         ready = False
@@ -2619,7 +2732,7 @@ class MainWindow(QMainWindow):
                 ready = True
 
         self.export_btn.setEnabled(ready)
-        self.export_btn.setText("내보내기")
+        self.export_btn.setText(tr("btn_export"))
 
     def set_start_mark(self):
         if getattr(self, 'is_multi_merge_mode', False): return
@@ -2629,17 +2742,17 @@ class MainWindow(QMainWindow):
         self.update_segments_list()
         self.slider.set_current_selection(self.start_time, self.end_time)
         self.check_export_ready()
-        self.statusBar().showMessage(f"시작 지점 설정됨: {self.format_time(self.start_time)}")
+        self.statusBar().showMessage(tr("status_start_set", time=self.format_time(self.start_time)))
 
     def set_end_mark(self):
         if getattr(self, 'is_multi_merge_mode', False): return
         if not getattr(self, '_has_start_mark', False):
-             QMessageBox.warning(self, "경고", "끝점은 시작점보다 뒤에 있어야 합니다.")
+             QMessageBox.warning(self, tr("dialog_warn_title"), tr("dialog_warn_end_before_start"))
              return
              
         current_pos = self._mpv_pos_ms()
         if current_pos <= self.start_time:
-             QMessageBox.warning(self, "경고", "끝점은 시작점보다 뒤에 있어야 합니다.")
+             QMessageBox.warning(self, tr("dialog_warn_title"), tr("dialog_warn_end_before_start"))
              return
         
         self.end_time = current_pos
@@ -2657,7 +2770,8 @@ class MainWindow(QMainWindow):
         self.update_segments_list()
         
         self.check_export_ready()
-        self.statusBar().showMessage(f"구간 임시 저장됨: {self.format_time(self.segments[-1][0])} ~ {self.format_time(self.segments[-1][1])}")
+        self.statusBar().showMessage(tr("status_segment_saved", start=self.format_time(self.segments[-1][0]), end=self.format_time(self.segments[-1][1])))
+
     def clear_segments(self):
         if getattr(self, 'is_multi_merge_mode', False): return
         self.segments = []
@@ -2668,7 +2782,7 @@ class MainWindow(QMainWindow):
         self.slider.set_current_selection(-1, -1)
         self.update_segments_list()
         self.check_export_ready()
-        self.statusBar().showMessage("전체 자르기 구간이 초기화되었습니다.")
+        self.statusBar().showMessage(tr("status_all_cleared"))
 
     def inverse_segments(self):
         if getattr(self, 'is_multi_merge_mode', False): return
@@ -2708,8 +2822,7 @@ class MainWindow(QMainWindow):
         self.slider.set_segments(self.segments)
         self.update_segments_list()
         self.check_export_ready()
-        self.statusBar().showMessage("선택 영역이 반전되었습니다.")
-
+        self.statusBar().showMessage(tr("status_inverse"))
 
     def load_tracks_to_table(self, file_path):
         self.tracks_table.setRowCount(0)
@@ -2725,14 +2838,16 @@ class MainWindow(QMainWindow):
             
             # 1: 유형
             type_str = track.get('type', '')
-            lbl = "비디오" if type_str == "video" else "오디오" if type_str == "audio" else "자막" if type_str == "subtitle" else type_str
-            self.tracks_table.setItem(row, 1, QTableWidgetItem(lbl))
+            lbl = tr("type_video") if type_str == "video" else tr("type_audio") if type_str == "audio" else tr("type_sub") if type_str == "subtitle" else type_str
+            type_item = QTableWidgetItem(lbl)
+            type_item.setData(Qt.ItemDataRole.UserRole, type_str)
+            self.tracks_table.setItem(row, 1, type_item)
             
             # 2: 코덱
             self.tracks_table.setItem(row, 2, QTableWidgetItem(str(track.get('codec', ''))))
             
             # 3: 항목 복사
-            self.tracks_table.setItem(row, 3, QTableWidgetItem("예"))
+            self.tracks_table.setItem(row, 3, QTableWidgetItem(tr("yes")))
             
             # 4: 언어
             self.tracks_table.setItem(row, 4, QTableWidgetItem(str(track.get('language', 'und'))))
@@ -2747,12 +2862,16 @@ class MainWindow(QMainWindow):
             self.tracks_table.setItem(row, 6, id_item)
             
             # 7: 기본 트랙
-            is_default = "예" if track.get('default') else "아니오"
-            self.tracks_table.setItem(row, 7, QTableWidgetItem(is_default))
+            is_def = bool(track.get('default'))
+            def_item = QTableWidgetItem(tr("yes") if is_def else tr("no"))
+            def_item.setData(Qt.ItemDataRole.UserRole, is_def)
+            self.tracks_table.setItem(row, 7, def_item)
             
             # 8: Forced display
-            is_forced = "예" if track.get('forced') else "아니오"
-            self.tracks_table.setItem(row, 8, QTableWidgetItem(is_forced))
+            is_forced = bool(track.get('forced'))
+            forced_item = QTableWidgetItem(tr("yes") if is_forced else tr("no"))
+            forced_item.setData(Qt.ItemDataRole.UserRole, is_forced)
+            self.tracks_table.setItem(row, 8, forced_item)
 
     def export_video(self):
         if self.is_multi_merge_mode and len(self.multi_merge_files) > 1:
@@ -2760,11 +2879,11 @@ class MainWindow(QMainWindow):
             if len(extensions) > 1:
                 msg_box = QMessageBox(self)
                 msg_box.setIcon(QMessageBox.Icon.Warning)
-                msg_box.setWindowTitle("경고: 확장자 불일치")
-                msg_box.setText("병합하려는 파일들의 확장자가 서로 다릅니다.\n이 경우 병합된 영상이 재생되지 않거나 파일이 손상될 수 있습니다.\n\n강제로 병합을 진행하시겠습니까?")
+                msg_box.setWindowTitle(tr("dialog_diff_ext_title"))
+                msg_box.setText(tr("dialog_diff_ext_msg"))
                 
-                btn_yes = msg_box.addButton("강제 병합", QMessageBox.ButtonRole.YesRole)
-                btn_cancel = msg_box.addButton("병합 취소", QMessageBox.ButtonRole.RejectRole)
+                btn_yes = msg_box.addButton(tr("dialog_btn_force_merge"), QMessageBox.ButtonRole.YesRole)
+                btn_cancel = msg_box.addButton(tr("dialog_btn_cancel"), QMessageBox.ButtonRole.RejectRole)
                 msg_box.setDefaultButton(btn_cancel)
                 
                 msg_box.exec()
@@ -2777,15 +2896,15 @@ class MainWindow(QMainWindow):
             ext = ext.lower() if ext else ".mkv"
             default_output = os.path.join(dir_name, f"{base_name}_merged{ext}")
             
-            desc = "Audio Files" if ext in ['.m4a', '.mp3', '.mka', '.aac', '.flac', '.wav', '.ogg'] else "Subtitle Files" if ext in ['.srt', '.mks', '.ass', '.vtt'] else "Video Files"
-            output_path, _ = QFileDialog.getSaveFileName(self, "병합 파일 저장", default_output, f"{desc} (*{ext});;All Files (*)")
+            desc = tr("filter_audio_files") if ext in ['.m4a', '.mp3', '.mka', '.aac', '.flac', '.wav', '.ogg'] else tr("filter_sub_files") if ext in ['.srt', '.mks', '.ass', '.vtt'] else tr("filter_video_files")
+            output_path, _ = QFileDialog.getSaveFileName(self, tr("dialog_save_merge"), default_output, f"{desc} (*{ext});;{tr('filter_all_files')} (*)")
             if output_path:
                 cmd, lst_file = video_cutter.build_merge_cmd(self.multi_merge_files, output_path)
                 if not cmd:
-                    QMessageBox.critical(self, "실패", lst_file)
+                    QMessageBox.critical(self, tr("dialog_export_fail_title"), lst_file)
                     return
                 # Multi-merge specific progress
-                tasks = [{'cmd': cmd, 'desc': "다중 파일 병합 중...", 'duration_ms': 0, 'cleanup_file': lst_file, 'output': output_path}]
+                tasks = [{'cmd': cmd, 'desc': tr("task_merge_multi"), 'duration_ms': 0, 'cleanup_file': lst_file, 'output': output_path}]
                 self.start_export_worker(tasks, [output_path])
             return
             
@@ -2809,7 +2928,12 @@ class MainWindow(QMainWindow):
                     if is_checked:
                         any_checked = True
                         selected_track_ids.append(id_item.data(Qt.ItemDataRole.UserRole))
-                        if type_item: selected_track_types.append(type_item.text())
+                        if type_item:
+                            raw_t = type_item.data(Qt.ItemDataRole.UserRole)
+                            if not raw_t:
+                                txt = type_item.text()
+                                raw_t = "video" if txt in ["비디오", "Video", "動画", "视频"] else "audio" if txt in ["오디오", "Audio", "音声", "音频"] else "subtitle" if txt in ["자막", "Subtitle", "字幕"] else txt
+                            selected_track_types.append(raw_t)
                         if codec_item: selected_track_codecs.append(codec_item.text().lower())
 
         if not self.file_path or (not has_segments and not (has_track_changes and any_checked)):
@@ -2824,8 +2948,8 @@ class MainWindow(QMainWindow):
         is_audio_export = False
         file_filter = ""
         
-        if "비디오" not in selected_track_types and len(selected_track_types) > 0:
-            if all(t == "자막" for t in selected_track_types):
+        if "video" not in selected_track_types and len(selected_track_types) > 0:
+            if all(t == "subtitle" for t in selected_track_types):
                 is_subtitle_export = True
                 if len(selected_track_types) == 1:
                     codec = selected_track_codecs[0] if selected_track_codecs else ""
@@ -2839,8 +2963,8 @@ class MainWindow(QMainWindow):
                         ext = ".srt"
                 else:
                     ext = ".mks"
-                file_filter = "자막 파일 (*.srt *.ass *.vtt *.sup *.mks);;SRT 자막 (*.srt);;ASS 자막 (*.ass);;WebVTT 자막 (*.vtt);;PGS 자막 (*.sup);;Matroska 자막 (*.mks);;모든 파일 (*.*)"
-            elif all(t == "오디오" for t in selected_track_types):
+                file_filter = f"{tr('filter_sub_files')} (*.srt *.ass *.vtt *.sup *.mks);;SRT (*.srt);;ASS (*.ass);;WebVTT (*.vtt);;PGS (*.sup);;Matroska (*.mks);;{tr('filter_all_files')} (*.*)"
+            elif all(t == "audio" for t in selected_track_types):
                 is_audio_export = True
                 if len(selected_track_types) == 1:
                     codec = selected_track_codecs[0] if selected_track_codecs else ""
@@ -2858,19 +2982,19 @@ class MainWindow(QMainWindow):
                         ext = ".mka"
                 else:
                     ext = ".mka"
-                file_filter = "오디오 파일 (*.m4a *.mp3 *.aac *.flac *.wav *.ogg *.mka);;모든 파일 (*.*)"
+                file_filter = f"{tr('filter_audio_files')} (*.m4a *.mp3 *.aac *.flac *.wav *.ogg *.mka);;{tr('filter_all_files')} (*.*)"
             else:
                 ext = ".mka"
-                file_filter = "미디어 파일 (*.mka *.mkv);;모든 파일 (*.*)"
+                file_filter = f"{tr('filter_merge_media')} (*.mka *.mkv);;{tr('filter_all_files')} (*.*)"
         else:
-            file_filter = f"비디오 파일 (*{original_ext});;모든 파일 (*.*)"
+            file_filter = f"{tr('filter_video_files')} (*{original_ext});;{tr('filter_all_files')} (*.*)"
         
         if not has_segments:
             default_output = os.path.join(dir_name, f"{base_name}_extracted{ext}")
         else:
             default_output = os.path.join(dir_name, f"{base_name}_cut{ext}")
 
-        output_path, selected_filter = QFileDialog.getSaveFileName(self, "저장할 파일 선택", default_output, file_filter)
+        output_path, selected_filter = QFileDialog.getSaveFileName(self, tr("dialog_save_file"), default_output, file_filter)
         
         if output_path:
             output_dir = os.path.dirname(output_path)
@@ -2889,10 +3013,8 @@ class MainWindow(QMainWindow):
                 if has_pgs:
                     QMessageBox.warning(
                         self,
-                        "자막 형식 경고",
-                        "선택한 자막(PGS/이미지 자막)은 텍스트가 아닌 이미지 형식의 자막입니다.\n"
-                        ".srt/.ass 텍스트 자막으로 직접 내보낼 수 없습니다.\n"
-                        ".sup 또는 .mks 확장자로 저장해 주세요."
+                        tr("dialog_pgs_warn_title"),
+                        tr("dialog_pgs_warn_msg")
                     )
                     return
 
@@ -2918,7 +3040,7 @@ class MainWindow(QMainWindow):
                     
                 generated_files.append(current_output)
                 cmd = video_cutter.build_cut_cmd(self.file_path, start_idx, end_idx, current_output, selected_track_ids)
-                task_desc = "자막 내보내기 중..." if is_subtitle_export else f"구간 내보내기 중... ({i+1}/{total})"
+                task_desc = tr("task_export_sub") if is_subtitle_export else tr("task_export_part", curr=i+1, total=total)
                 tasks.append({
                     'cmd': cmd,
                     'desc': task_desc,
@@ -2931,7 +3053,7 @@ class MainWindow(QMainWindow):
                 merge_cmd, lst_file = video_cutter.build_merge_cmd(generated_files, merged_output_path)
                 tasks.append({
                     'cmd': merge_cmd,
-                    'desc': "조각 파일 묶음 병합 중...",
+                    'desc': tr("task_merge_parts"),
                     'duration_ms': 100, # Small padding for merge time
                     'cleanup_file': lst_file,
                     'output': merged_output_path,
@@ -2946,8 +3068,8 @@ class MainWindow(QMainWindow):
         self.temp_files_created_by_worker = temp_files_created # to clean up if cancelled/finished
         
         # Create Progress Dialog
-        self.progress_dialog = QProgressDialog("작업을 준비 중...", "취소", 0, 100, self)
-        self.progress_dialog.setWindowTitle("내보내기 진행 상황")
+        self.progress_dialog = QProgressDialog(tr("dialog_preparing"), tr("dialog_cancel"), 0, 100, self)
+        self.progress_dialog.setWindowTitle(tr("dialog_export_progress_title"))
         self.progress_dialog.setWindowModality(Qt.WindowModality.WindowModal)
         self.progress_dialog.setMinimumDuration(0)
         self.progress_dialog.setValue(0)
@@ -2987,15 +3109,15 @@ class MainWindow(QMainWindow):
         self.check_export_ready() # Sync the button state properly!
         
         if success:
-            self.statusBar().showMessage("작업이 완료되었습니다.")
-            QMessageBox.information(self, "완료", msg)
+            self.statusBar().showMessage(tr("status_task_complete"))
+            QMessageBox.information(self, tr("dialog_done_title"), msg)
         else:
-            self.statusBar().showMessage("작업 취소 또는 실패")
-            QMessageBox.critical(self, "실패", msg)
+            self.statusBar().showMessage(tr("status_task_failed"))
+            QMessageBox.critical(self, tr("dialog_export_fail_title"), msg)
 
     def handle_errors(self):
         self.play_button.setEnabled(False)
-        self.time_label.setText("오류 발생")
+        self.time_label.setText(tr("status_error"))
 
     def closeEvent(self, event):
         if hasattr(self, '_mpv_timer'):
