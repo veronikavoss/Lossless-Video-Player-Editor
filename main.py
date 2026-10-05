@@ -56,8 +56,14 @@ class GlobalDragDropFilter(QObject):
                 return True
         return super().eventFilter(watched, event)
 
+from i18n import init_language
+
 if __name__ == "__main__":
     app = QApplication(sys.argv)
+    app.setOrganizationName("LosslessVideoPlayerEditor")
+    app.setApplicationName("LosslessVideoPlayerEditor")
+    init_language()
+    
     window = MainWindow()
     
     # Install global filter

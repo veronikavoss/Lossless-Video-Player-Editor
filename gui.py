@@ -24,7 +24,7 @@ ASSETS_DIR = os.path.join(BASE_DIR, "assets").replace("\\", "/")
 
 from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
                                QHBoxLayout, QPushButton, QSlider, QLabel, QFileDialog, QMessageBox, QStyle, QStyleOptionSlider, QListWidget, QListWidgetItem, QAbstractItemView,
-                               QTableWidget, QTableWidgetItem, QHeaderView, QCheckBox, QComboBox, QFrame, QProgressDialog, QMenu, QStatusBar, QSizePolicy)
+                               QTableWidget, QTableWidgetItem, QHeaderView, QCheckBox, QComboBox, QFrame, QProgressDialog, QMenu, QStatusBar, QSizePolicy, QDialog)
 from PySide6.QtCore import Qt, QUrl, QTime, QPoint, QRect, QRectF, Signal, QObject, QEvent, QSize, QTimer, QThread
 from PySide6.QtGui import QPainter, QColor, QPolygon, QPen, QBrush, QIcon, QShortcut, QKeySequence, QPixmap, QImage, QCursor, QRegion
 from PySide6.QtSvg import QSvgRenderer
@@ -37,6 +37,200 @@ def get_asset_path(filename):
 
 def get_asset_icon(filename):
     return QIcon(get_asset_path(filename))
+
+class AboutDialog(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle(tr("about_title"))
+        self.setWindowIcon(get_asset_icon("icon.ico"))
+        self.setFixedSize(420, 260)
+        self.setModal(True)
+        self.setStyleSheet("""
+            QDialog {
+                background-color: #232323;
+                border: 1px solid #3d3d3d;
+            }
+            QLabel {
+                color: #e0e0e0;
+            }
+        """)
+        
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(24, 20, 24, 20)
+        layout.setSpacing(16)
+        
+        # Header: Icon + Info
+        header_layout = QHBoxLayout()
+        header_layout.setSpacing(16)
+        
+        icon_label = QLabel(self)
+        svg_path = get_asset_path("icon.svg")
+        ico_path = get_asset_path("icon.ico")
+        
+        pixmap = QPixmap()
+        if os.path.exists(svg_path):
+            renderer = QSvgRenderer(svg_path)
+            if renderer.isValid():
+                img = QImage(56, 56, QImage.Format.Format_ARGB32_Premultiplied)
+                img.fill(Qt.GlobalColor.transparent)
+                p = QPainter(img)
+                renderer.render(p, QRectF(0, 0, 56, 56))
+                p.end()
+                pixmap = QPixmap.fromImage(img)
+        
+        if pixmap.isNull() and os.path.exists(ico_path):
+            pixmap = QIcon(ico_path).pixmap(56, 56)
+            
+        if not pixmap.isNull():
+            icon_label.setPixmap(pixmap)
+        icon_label.setFixedSize(56, 56)
+        header_layout.addWidget(icon_label)
+        
+        title_box = QVBoxLayout()
+        title_box.setSpacing(3)
+        
+        title_label = QLabel(tr("app_title"), self)
+        title_label.setStyleSheet("font-size: 16px; font-weight: bold; color: #ffffff;")
+        
+        version_label = QLabel(tr("about_version"), self)
+        version_label.setStyleSheet("font-size: 12px; font-weight: bold; color: #58a6ff;")
+        
+        date_label = QLabel(tr("about_release_date"), self)
+        date_label.setStyleSheet("font-size: 12px; color: #8b949e;")
+        
+        title_box.addWidget(title_label)
+        title_box.addWidget(version_label)
+        title_box.addWidget(date_label)
+        title_box.addStretch()
+        
+        header_layout.addLayout(title_box)
+        header_layout.addStretch()
+        layout.addLayout(header_layout)
+        
+        # Description Card
+        desc_frame = QFrame(self)
+        desc_frame.setStyleSheet("""
+            QFrame {
+                background-color: #2b2b2b;
+                border: 1px solid #3a3a3a;
+                border-radius: 6px;
+                padding: 8px;
+            }
+        """)
+        desc_layout = QVBoxLayout(desc_frame)
+        desc_layout.setContentsMargins(10, 8, 10, 8)
+        desc_label = QLabel(tr("about_desc"), desc_frame)
+        desc_label.setWordWrap(True)
+        desc_label.setStyleSheet("font-size: 12px; color: #cccccc; border: none; background: transparent;")
+        desc_layout.addWidget(desc_label)
+        layout.addWidget(desc_frame)
+        
+        # Bottom Button
+        btn_layout = QHBoxLayout()
+        btn_layout.addStretch()
+        
+        close_btn = QPushButton(tr("btn_close"), self)
+        close_btn.setFixedSize(85, 30)
+        close_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #383838;
+                color: #ffffff;
+                border: 1px solid #555555;
+                border-radius: 4px;
+                font-size: 12px;
+                font-weight: 500;
+            }
+            QPushButton:hover {
+                background-color: #4a4a4a;
+                border-color: #777777;
+            }
+            QPushButton:pressed {
+                background-color: #2e2e2e;
+            }
+        """)
+        close_btn.clicked.connect(self.accept)
+        close_btn.setDefault(True)
+        btn_layout.addWidget(close_btn)
+        
+        layout.addLayout(btn_layout)
+
+class ExportButton(QPushButton):
+    def __init__(self, text="", parent=None):
+        super().__init__(text, parent)
+        self._action_enabled = False
+        # 한글 언어 팩 '내보내기' 기준 고정 크기 (너비 92px, 높이 32px)
+        self.setFixedSize(92, 32)
+        self.update_style()
+
+    def setEnabled(self, enabled):
+        self._action_enabled = bool(enabled)
+        self.update_style()
+
+    def isEnabled(self):
+        return self._action_enabled
+
+    def update_style(self):
+        if self._action_enabled:
+            self.setCursor(Qt.CursorShape.PointingHandCursor)
+            # 활성화 상태: 기본 상태가 이전의 호버 색상(#4a4a4a, #777777)이고,
+            # 이 활성화 상태에서만 마우스 호버 효과(#5c5c5c, #aaaaaa)가 적용됨
+            self.setStyleSheet("""
+                QPushButton {
+                    background-color: #4a4a4a;
+                    color: #ffffff;
+                    border: 1px solid #777777;
+                    border-radius: 4px;
+                    font-size: 12px;
+                    font-weight: 500;
+                }
+                QPushButton:hover {
+                    background-color: #5c5c5c;
+                    border-color: #aaaaaa;
+                    color: #ffffff;
+                }
+                QPushButton:pressed {
+                    background-color: #383838;
+                }
+            """)
+        else:
+            self.setCursor(Qt.CursorShape.ArrowCursor)
+            # 비활성화 상태: 마우스 호버 기능 완전 제거! (호버해도 색 변화 없음)
+            self.setStyleSheet("""
+                QPushButton {
+                    background-color: #383838;
+                    color: #888888;
+                    border: 1px solid #555555;
+                    border-radius: 4px;
+                    font-size: 12px;
+                    font-weight: 500;
+                }
+                QPushButton:hover {
+                    background-color: #383838;
+                    border-color: #555555;
+                    color: #888888;
+                }
+                QPushButton:pressed {
+                    background-color: #383838;
+                }
+            """)
+
+    def mousePressEvent(self, event):
+        if not self._action_enabled:
+            event.accept()
+            return
+        super().mousePressEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        if not self._action_enabled:
+            event.accept()
+            return
+        super().mouseReleaseEvent(event)
+
+    def keyPressEvent(self, event):
+        if not self._action_enabled:
+            event.accept()
+            return
+        super().keyPressEvent(event)
 
 class ElidedLabel(QLabel):
     def __init__(self, text, parent=None):
@@ -1095,12 +1289,56 @@ class MainWindow(QMainWindow):
         self.clear_btn.clicked.connect(self.clear_segments)
         self.controls_layout.addWidget(self.clear_btn)
 
+        self.screenshot_btn = QPushButton()
+        self.screenshot_btn.setIcon(get_asset_icon("screen_shot.svg"))
+        self.screenshot_btn.setIconSize(QSize(42, 36))
+        self.screenshot_btn.setFixedSize(42, 36)
+        self.screenshot_btn.setStyleSheet("background-color: transparent; border: none;")
+        self.screenshot_btn.setToolTip(tr("tooltip_screenshot"))
+        self.screenshot_btn.setProperty("hover_color", "gold")
+        self.screenshot_btn.setEnabled(False)
+        self.screenshot_btn.clicked.connect(self.take_screenshot)
+        self.controls_layout.addWidget(self.screenshot_btn)
+
+        check_path = get_asset_path("check_white.svg")
         self.merge_checkbox = QCheckBox(tr("merge_checkbox"))
-        self.merge_checkbox.setStyleSheet("color: #cccccc;")
+        self.merge_checkbox.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.merge_checkbox.setStyleSheet(f"""
+            QCheckBox {{
+                background: transparent;
+                color: #ffffff;
+                spacing: 6px;
+            }}
+            QCheckBox:disabled {{
+                color: #9e9e9e;
+            }}
+            QCheckBox::indicator {{
+                width: 13px;
+                height: 13px;
+                background-color: transparent;
+                border: 1px solid white;
+                border-radius: 2px;
+            }}
+            QCheckBox::indicator:hover {{
+                border: 1px solid #aaa;
+            }}
+            QCheckBox::indicator:checked {{
+                border: 1px solid white;
+                image: url("{check_path.replace(chr(92), '/')}");
+            }}
+            QCheckBox::indicator:disabled {{
+                border: 1px solid #777777;
+                background-color: transparent;
+            }}
+            QCheckBox::indicator:disabled:checked {{
+                border: 1px solid #777777;
+                image: url("{check_path.replace(chr(92), '/')}");
+            }}
+        """)
         self.merge_checkbox.setEnabled(False)
         self.controls_layout.addWidget(self.merge_checkbox)
 
-        self.export_btn = QPushButton(tr("btn_export"))
+        self.export_btn = ExportButton(tr("btn_export"))
         self.export_btn.clicked.connect(self.export_video)
         self.export_btn.setEnabled(False)
         self.controls_layout.addWidget(self.export_btn)
@@ -1388,6 +1626,7 @@ class MainWindow(QMainWindow):
         self.move_end_point_btn.setToolTip(tr("tooltip_jump_end"))
         self.inverse_btn.setToolTip(tr("tooltip_inverse"))
         self.clear_btn.setToolTip(tr("tooltip_clear"))
+        self.screenshot_btn.setToolTip(tr("tooltip_screenshot"))
         self.btn_maximize.setToolTip(tr("tooltip_maximize"))
         self.btn_fullscreen.setToolTip(tr("tooltip_fullscreen"))
         
@@ -1536,6 +1775,7 @@ class MainWindow(QMainWindow):
         add_shortcut(Qt.Key.Key_Period, self.jump_to_end)
         add_shortcut(Qt.Key.Key_Space, self.toggle_play)
         add_shortcut(Qt.Key.Key_Escape, self.stop_playback)
+        add_shortcut(Qt.Key.Key_F8, self.take_screenshot)
         
         alt_enter = QShortcut(QKeySequence("Alt+Return"), self)
         alt_enter.setContext(Qt.ShortcutContext.ApplicationShortcut)
@@ -1780,6 +2020,7 @@ class MainWindow(QMainWindow):
         self.set_end_btn.setEnabled(False)
         self.inverse_btn.setEnabled(False)
         self.clear_btn.setEnabled(False)
+        self.screenshot_btn.setEnabled(True)
         self.segments_label.setText(f"{tr('label_segments')}{tr('label_segments_merge_disabled')}")
         self.slider.setEnabled(True)
         
@@ -1832,6 +2073,7 @@ class MainWindow(QMainWindow):
         self.set_end_btn.setEnabled(True)
         self.inverse_btn.setEnabled(True)
         self.clear_btn.setEnabled(True)
+        self.screenshot_btn.setEnabled(True)
         self.segments_label.setText(tr("label_segments"))
         self.play_video()
         self.setWindowTitle(tr("app_title_file", name=os.path.basename(self.file_path)))
@@ -1872,6 +2114,7 @@ class MainWindow(QMainWindow):
         self.set_end_btn.setEnabled(False)
         self.inverse_btn.setEnabled(False)
         self.clear_btn.setEnabled(False)
+        self.screenshot_btn.setEnabled(False)
         self.segments_label.setText(tr("label_segments"))
         self.multi_merge_play_idx = -1
         self.merge_queue_list.clear()
@@ -1993,6 +2236,12 @@ class MainWindow(QMainWindow):
 
         act_stop = menu.addAction(tr("menu_stop"))
         act_stop.triggered.connect(self.stop_playback)
+        menu.addSeparator()
+
+        act_screenshot = menu.addAction(tr("menu_screenshot"))
+        has_file = bool(getattr(self, 'file_path', None) or (getattr(self, 'is_multi_merge_mode', False) and getattr(self, 'multi_merge_files', None)))
+        act_screenshot.setEnabled(has_file)
+        act_screenshot.triggered.connect(self.take_screenshot)
         menu.addSeparator()
 
         audio_menu = QMenu(tr("menu_audio"), menu)
@@ -2167,11 +2416,19 @@ class MainWindow(QMainWindow):
         act_shortcuts.triggered.connect(self.show_shortcuts_guide)
         menu.addSeparator()
 
+        act_about = menu.addAction(tr("menu_about"))
+        act_about.triggered.connect(self.show_about_dialog)
+        menu.addSeparator()
+
         act_exit = menu.addAction(tr("menu_exit"))
         act_exit.triggered.connect(self.close)
 
         global_pos = self.video_widget.mapToGlobal(pos)
         menu.exec(global_pos)
+
+    def show_about_dialog(self):
+        dlg = AboutDialog(self)
+        dlg.exec()
 
     def show_shortcuts_guide(self):
         msg = QMessageBox(self)
@@ -2784,6 +3041,84 @@ class MainWindow(QMainWindow):
         self.check_export_ready()
         self.statusBar().showMessage(tr("status_all_cleared"))
 
+    def trigger_screenshot_flash(self):
+        try:
+            if not hasattr(self, '_flash_widget') or self._flash_widget is None:
+                self._flash_widget = QWidget(self.central_widget)
+                self._flash_widget.setStyleSheet("background-color: rgba(255, 255, 255, 175);")
+                self._flash_widget.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+            
+            v_geo = self.video_widget.geometry()
+            self._flash_widget.setGeometry(v_geo)
+            self._flash_widget.show()
+            self._flash_widget.raise_()
+            
+            QTimer.singleShot(75, self._flash_widget.hide)
+        except Exception:
+            pass
+
+    def take_screenshot(self):
+        if not hasattr(self, 'player') or not self.player:
+            return
+        
+        current_file = getattr(self, 'file_path', None)
+        if not current_file and getattr(self, 'is_multi_merge_mode', False):
+            if hasattr(self, 'multi_merge_files') and 0 <= getattr(self, 'multi_merge_play_idx', -1) < len(self.multi_merge_files):
+                current_file = self.multi_merge_files[self.multi_merge_play_idx]
+                
+        if not current_file:
+            return
+            
+        save_dir = os.path.dirname(os.path.abspath(current_file))
+        if not os.path.exists(save_dir) or not os.access(save_dir, os.W_OK):
+            save_dir = os.path.expanduser("~")
+            
+        base_name = os.path.splitext(os.path.basename(current_file))[0]
+        
+        pos_sec = 0.0
+        try:
+            pos_sec = float(self.player.time_pos or 0.0)
+        except Exception:
+            pos_sec = 0.0
+            
+        h = int(pos_sec // 3600)
+        m = int((pos_sec % 3600) // 60)
+        s = int(pos_sec % 60)
+        ms = int(round((pos_sec - int(pos_sec)) * 1000))
+        if ms >= 1000:
+            s += 1
+            ms = 0
+            
+        time_str = f"{h:02d}-{m:02d}-{s:02d}_{ms:03d}"
+        file_name = f"{base_name}_shot_{time_str}.png"
+        full_path = os.path.join(save_dir, file_name)
+        
+        counter = 1
+        while os.path.exists(full_path):
+            full_path = os.path.join(save_dir, f"{base_name}_shot_{time_str}_{counter}.png")
+            counter += 1
+            
+        norm_path = os.path.normpath(full_path)
+        try:
+            self.player.command('screenshot-to-file', norm_path, 'video')
+        except Exception as e:
+            print(f"Screenshot failed: {e}")
+            return
+                
+        self.trigger_screenshot_flash()
+        
+        def on_saved(target_path):
+            if os.path.exists(target_path):
+                try:
+                    pix = QPixmap(target_path)
+                    if not pix.isNull():
+                        QApplication.clipboard().setPixmap(pix)
+                except Exception:
+                    pass
+            self.statusBar().showMessage(tr("status_screenshot_saved", path=os.path.basename(target_path)), 4000)
+            
+        QTimer.singleShot(120, lambda: on_saved(full_path))
+
     def inverse_segments(self):
         if getattr(self, 'is_multi_merge_mode', False): return
         if not self.file_path: return
@@ -3120,6 +3455,12 @@ class MainWindow(QMainWindow):
         self.time_label.setText(tr("status_error"))
 
     def closeEvent(self, event):
+        try:
+            curr_lang = get_current_language()
+            set_current_language(curr_lang)
+        except Exception:
+            pass
+
         if hasattr(self, '_mpv_timer'):
             self._mpv_timer.stop()
             

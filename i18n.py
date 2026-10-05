@@ -4,7 +4,10 @@ Supports Korean, English, Japanese, and Simplified Chinese.
 Language preferences are stored and loaded via QSettings.
 """
 
+import os
 from PySide6.QtCore import QSettings
+
+CONFIG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.ini")
 
 SUPPORTED_LANGUAGES = {
     "ko": "한국어 (Korean)",
@@ -16,9 +19,9 @@ SUPPORTED_LANGUAGES = {
 TRANSLATIONS = {
     "ko": {
         # App Title
-        "app_title": "MKV Lossless Cutter",
-        "app_title_file": "MKV Lossless Cutter - {name}",
-        "multi_merge_title": "MKV Lossless Cutter - 다중 파일 병합 모드",
+        "app_title": "Lossless Video Player Editor v1.0",
+        "app_title_file": "Lossless Video Player Editor v1.0 - {name}",
+        "multi_merge_title": "Lossless Video Player Editor v1.0 - 다중 파일 병합 모드",
         
         # Tooltips - Playback controls
         "tooltip_pre_frame": "1프레임 뒤로 (D)",
@@ -40,6 +43,7 @@ TRANSLATIONS = {
         "tooltip_jump_end": "끝점으로 이동 (.)",
         "tooltip_inverse": "선택 영역 반전",
         "tooltip_clear": "선택 초기화",
+        "tooltip_screenshot": "화면 캡처 / 스크린샷 (F8)",
         "tooltip_maximize": "창 최대화 / 복원 (비디오 더블클릭)",
         "tooltip_fullscreen": "순수 전체화면 모드 (Alt+Enter)",
         
@@ -49,7 +53,7 @@ TRANSLATIONS = {
         "tooltip_item_delete": "삭제",
 
         # Labels & Buttons
-        "merge_checkbox": "다중 구간 병합 (Merge)",
+        "merge_checkbox": "다중 구간 병합",
         "btn_export": "내보내기",
         "btn_start_merge": "병합 시작",
         "label_tracks": "트랙, 챕터와 태그",
@@ -77,6 +81,7 @@ TRANSLATIONS = {
         "menu_open": "파일 열기... (Ctrl+O)",
         "menu_play_pause": "재생 / 일시정지 (Space)",
         "menu_stop": "정지 (S)",
+        "menu_screenshot": "화면 캡처 (F8)",
         "menu_audio": "오디오",
         "menu_mute": "음소거",
         "menu_current_audio": "현재 재생중인 오디오: {title}",
@@ -91,6 +96,7 @@ TRANSLATIONS = {
         "menu_fullscreen": "전체 화면 (Alt+Enter)",
         "menu_normal_screen": "기본 화면 (Alt+Enter)",
         "menu_shortcuts": "단축키 안내",
+        "menu_about": "정보",
         "menu_exit": "종료 (Esc)",
         
         # Segments list items
@@ -127,6 +133,7 @@ TRANSLATIONS = {
         "status_task_complete": "작업이 완료되었습니다.",
         "status_task_failed": "작업 취소 또는 실패",
         "status_lang_changed": "언어가 변경되었습니다: {lang}",
+        "status_screenshot_saved": "스크린샷이 저장되었습니다: {path}",
 
         # Dialogs & Prompts
         "dialog_unsupported_title": "지원하지 않는 파일",
@@ -177,6 +184,7 @@ TRANSLATIONS = {
             "<b>위/아래 방향키</b> : 볼륨 조절<br>"
             "<b>Alt+Enter</b> : 전체화면 전환<br>"
             "<b>Ctrl+O</b> : 파일 열기<br>"
+            "<b>F8</b> : 화면 캡처 (스크린샷)<br>"
         ),
         # Extra Type Menu & Mode Strings
         "menu_type_all": "유형 전체 선택",
@@ -185,17 +193,22 @@ TRANSLATIONS = {
         "menu_type_sub": "자막만 선택",
         "status_error": "오류 발생",
         "label_segments_merge_disabled": " (병합 모드 - 구간 설정 불가)",
-        "multi_merge_title_idx": "MKV Lossless Cutter - 다중 파일 미리보기 ({curr}/{total})",
+        "multi_merge_title_idx": "Lossless Video Player Editor v1.0 - 다중 파일 미리보기 ({curr}/{total})",
         "filter_merge_media": "미디어 파일",
         "task_cancelled_user": "사용자에 의해 취소됨",
         "task_all_complete": "모든 작업 완료",
+        "about_title": "프로그램 정보",
+        "about_version": "버전: 1.0",
+        "about_release_date": "릴리즈 날짜: 2026-10-04",
+        "about_desc": "FFmpeg 및 libmpv 기반의 빠르고 정밀한 무손실 비디오 재생 및 편집기",
+        "btn_close": "확인",
     },
     
     "en": {
         # App Title
-        "app_title": "MKV Lossless Cutter",
-        "app_title_file": "MKV Lossless Cutter - {name}",
-        "multi_merge_title": "MKV Lossless Cutter - Multi-File Merge Mode",
+        "app_title": "Lossless Video Player Editor v1.0",
+        "app_title_file": "Lossless Video Player Editor v1.0 - {name}",
+        "multi_merge_title": "Lossless Video Player Editor v1.0 - Multi-File Merge Mode",
         
         # Tooltips - Playback controls
         "tooltip_pre_frame": "1 frame backward (D)",
@@ -217,6 +230,7 @@ TRANSLATIONS = {
         "tooltip_jump_end": "Jump to End Mark (.)",
         "tooltip_inverse": "Invert Selection",
         "tooltip_clear": "Clear Selection",
+        "tooltip_screenshot": "Capture Screenshot (F8)",
         "tooltip_maximize": "Maximize / Restore (Double-click video)",
         "tooltip_fullscreen": "Borderless Fullscreen (Alt+Enter)",
         
@@ -226,9 +240,9 @@ TRANSLATIONS = {
         "tooltip_item_delete": "Delete",
 
         # Labels & Buttons
-        "merge_checkbox": "Merge Segments (Concat)",
+        "merge_checkbox": "Merge Segments",
         "btn_export": "Export",
-        "btn_start_merge": "Start Merge",
+        "btn_start_merge": "Merge",
         "label_tracks": "Tracks, Chapters & Tags",
         "label_segments": "Cut Segments List",
         "label_merge_queue": "Multi-File Merge Queue",
@@ -254,6 +268,7 @@ TRANSLATIONS = {
         "menu_open": "Open File... (Ctrl+O)",
         "menu_play_pause": "Play / Pause (Space)",
         "menu_stop": "Stop (S)",
+        "menu_screenshot": "Capture Screenshot (F8)",
         "menu_audio": "Audio",
         "menu_mute": "Mute",
         "menu_current_audio": "Currently Playing Audio: {title}",
@@ -268,6 +283,7 @@ TRANSLATIONS = {
         "menu_fullscreen": "Fullscreen (Alt+Enter)",
         "menu_normal_screen": "Normal Window (Alt+Enter)",
         "menu_shortcuts": "Keyboard Shortcuts",
+        "menu_about": "About",
         "menu_exit": "Exit (Esc)",
         
         # Segments list items
@@ -304,6 +320,7 @@ TRANSLATIONS = {
         "status_task_complete": "Operation completed successfully.",
         "status_task_failed": "Operation cancelled or failed.",
         "status_lang_changed": "Language changed: {lang}",
+        "status_screenshot_saved": "Screenshot saved: {path}",
 
         # Dialogs & Prompts
         "dialog_unsupported_title": "Unsupported File",
@@ -354,6 +371,7 @@ TRANSLATIONS = {
             "<b>Up / Down Arrow</b> : Volume Up / Down<br>"
             "<b>Alt+Enter</b> : Toggle Fullscreen<br>"
             "<b>Ctrl+O</b> : Open file<br>"
+            "<b>F8</b> : Capture Screenshot<br>"
         ),
         # Extra Type Menu & Mode Strings
         "menu_type_all": "Select All Types",
@@ -362,17 +380,22 @@ TRANSLATIONS = {
         "menu_type_sub": "Select Subtitles Only",
         "status_error": "Error occurred",
         "label_segments_merge_disabled": " (Merge Mode - Segment Setting Disabled)",
-        "multi_merge_title_idx": "MKV Lossless Cutter - Multi-File Preview ({curr}/{total})",
+        "multi_merge_title_idx": "Lossless Video Player Editor v1.0 - Multi-File Preview ({curr}/{total})",
         "filter_merge_media": "Media Files",
         "task_cancelled_user": "Cancelled by user",
         "task_all_complete": "All tasks completed",
+        "about_title": "About Lossless Video Player Editor",
+        "about_version": "Version: 1.0",
+        "about_release_date": "Release Date: 2026-10-04",
+        "about_desc": "Fast and precise lossless video player & editor powered by FFmpeg and libmpv.",
+        "btn_close": "OK",
     },
     
     "ja": {
         # App Title
-        "app_title": "MKV Lossless Cutter",
-        "app_title_file": "MKV Lossless Cutter - {name}",
-        "multi_merge_title": "MKV Lossless Cutter - 複数ファイル結合モード",
+        "app_title": "Lossless Video Player Editor v1.0",
+        "app_title_file": "Lossless Video Player Editor v1.0 - {name}",
+        "multi_merge_title": "Lossless Video Player Editor v1.0 - 複数ファイル結合モード",
         
         # Tooltips - Playback controls
         "tooltip_pre_frame": "1フレーム戻る (D)",
@@ -394,6 +417,7 @@ TRANSLATIONS = {
         "tooltip_jump_end": "終了点へ移動 (.)",
         "tooltip_inverse": "選択範囲の反転",
         "tooltip_clear": "選択解除",
+        "tooltip_screenshot": "スクリーンショット保存 (F8)",
         "tooltip_maximize": "最大化 / 元に戻す (ダブルクリック)",
         "tooltip_fullscreen": "全画面表示 (Alt+Enter)",
         
@@ -403,7 +427,7 @@ TRANSLATIONS = {
         "tooltip_item_delete": "削除",
 
         # Labels & Buttons
-        "merge_checkbox": "複数区間の結合 (Merge)",
+        "merge_checkbox": "複数区間の結合",
         "btn_export": "出力",
         "btn_start_merge": "結合開始",
         "label_tracks": "トラック・チャプター・タグ",
@@ -431,6 +455,7 @@ TRANSLATIONS = {
         "menu_open": "ファイルを開く... (Ctrl+O)",
         "menu_play_pause": "再生 / 一時停止 (Space)",
         "menu_stop": "停止 (S)",
+        "menu_screenshot": "スクリーンショット (F8)",
         "menu_audio": "音声",
         "menu_mute": "消音",
         "menu_current_audio": "再生中の音声: {title}",
@@ -445,6 +470,7 @@ TRANSLATIONS = {
         "menu_fullscreen": "全画面表示 (Alt+Enter)",
         "menu_normal_screen": "通常ウィンドウ (Alt+Enter)",
         "menu_shortcuts": "ショートカット案内",
+        "menu_about": "情報",
         "menu_exit": "終了 (Esc)",
         
         # Segments list items
@@ -481,6 +507,7 @@ TRANSLATIONS = {
         "status_task_complete": "処理が完了しました。",
         "status_task_failed": "処理が中止または失敗しました。",
         "status_lang_changed": "言語を変更しました: {lang}",
+        "status_screenshot_saved": "スクリーンショットを保存しました: {path}",
 
         # Dialogs & Prompts
         "dialog_unsupported_title": "非対応ファイル",
@@ -531,6 +558,7 @@ TRANSLATIONS = {
             "<b>↑ / ↓</b> : 音量調整<br>"
             "<b>Alt+Enter</b> : 全画面切替<br>"
             "<b>Ctrl+O</b> : ファイルを開く<br>"
+            "<b>F8</b> : スクリーンショット保存<br>"
         ),
         # Extra Type Menu & Mode Strings
         "menu_type_all": "すべての種類を選択",
@@ -539,17 +567,22 @@ TRANSLATIONS = {
         "menu_type_sub": "字幕のみ選択",
         "status_error": "エラーが発生しました",
         "label_segments_merge_disabled": "（結合モード - 区間設定不可）",
-        "multi_merge_title_idx": "MKV Lossless Cutter - 複数ファイルプレビュー ({curr}/{total})",
+        "multi_merge_title_idx": "Lossless Video Player Editor v1.0 - 複数ファイルプレビュー ({curr}/{total})",
         "filter_merge_media": "メディアファイル",
         "task_cancelled_user": "ユーザーによってキャンセルされました",
         "task_all_complete": "すべてのタスクが完了しました",
+        "about_title": "プログラム情報",
+        "about_version": "バージョン: 1.0",
+        "about_release_date": "リリース日: 2026-10-04",
+        "about_desc": "FFmpegおよびlibmpvを基盤とした高速・精密な無劣化動画再生・編集エディタ",
+        "btn_close": "OK",
     },
     
     "zh": {
         # App Title
-        "app_title": "MKV Lossless Cutter",
-        "app_title_file": "MKV Lossless Cutter - {name}",
-        "multi_merge_title": "MKV Lossless Cutter - 多文件合并模式",
+        "app_title": "Lossless Video Player Editor v1.0",
+        "app_title_file": "Lossless Video Player Editor v1.0 - {name}",
+        "multi_merge_title": "Lossless Video Player Editor v1.0 - 多文件合并模式",
         
         # Tooltips - Playback controls
         "tooltip_pre_frame": "后退1帧 (D)",
@@ -571,6 +604,7 @@ TRANSLATIONS = {
         "tooltip_jump_end": "跳到终点 (.)",
         "tooltip_inverse": "反向选择",
         "tooltip_clear": "清除选择",
+        "tooltip_screenshot": "屏幕截图保存 (F8)",
         "tooltip_maximize": "窗口最大化 / 还原 (双击画面)",
         "tooltip_fullscreen": "纯全屏模式 (Alt+Enter)",
         
@@ -580,7 +614,7 @@ TRANSLATIONS = {
         "tooltip_item_delete": "删除",
 
         # Labels & Buttons
-        "merge_checkbox": "多片段合并 (Merge)",
+        "merge_checkbox": "多片段合并",
         "btn_export": "导出",
         "btn_start_merge": "开始合并",
         "label_tracks": "轨道、章节与标签",
@@ -608,6 +642,7 @@ TRANSLATIONS = {
         "menu_open": "打开文件... (Ctrl+O)",
         "menu_play_pause": "播放 / 暂停 (Space)",
         "menu_stop": "停止 (S)",
+        "menu_screenshot": "屏幕截图 (F8)",
         "menu_audio": "音频",
         "menu_mute": "静音",
         "menu_current_audio": "正在播放音频: {title}",
@@ -622,6 +657,7 @@ TRANSLATIONS = {
         "menu_fullscreen": "全屏显示 (Alt+Enter)",
         "menu_normal_screen": "还原窗口 (Alt+Enter)",
         "menu_shortcuts": "快捷键说明",
+        "menu_about": "关于",
         "menu_exit": "退出 (Esc)",
         
         # Segments list items
@@ -658,6 +694,7 @@ TRANSLATIONS = {
         "status_task_complete": "操作已完成。",
         "status_task_failed": "操作已取消或失败。",
         "status_lang_changed": "语言已切换: {lang}",
+        "status_screenshot_saved": "屏幕截图已保存: {path}",
 
         # Dialogs & Prompts
         "dialog_unsupported_title": "不支持的文件",
@@ -708,6 +745,7 @@ TRANSLATIONS = {
             "<b>上 / 下方向键</b> : 音量调节<br>"
             "<b>Alt+Enter</b> : 切换全屏<br>"
             "<b>Ctrl+O</b> : 打开文件<br>"
+            "<b>F8</b> : 屏幕截图保存<br>"
         ),
         # Extra Type Menu & Mode Strings
         "menu_type_all": "选择所有类型",
@@ -716,10 +754,15 @@ TRANSLATIONS = {
         "menu_type_sub": "仅选择字幕",
         "status_error": "发生错误",
         "label_segments_merge_disabled": "（合并模式 - 禁用片段设置）",
-        "multi_merge_title_idx": "MKV Lossless Cutter - 多文件预览 ({curr}/{total})",
+        "multi_merge_title_idx": "Lossless Video Player Editor v1.0 - 多文件预览 ({curr}/{total})",
         "filter_merge_media": "媒体文件",
         "task_cancelled_user": "已被用户取消",
         "task_all_complete": "所有任务已完成",
+        "about_title": "程序信息",
+        "about_version": "版本: 1.0",
+        "about_release_date": "发布日期: 2026-10-04",
+        "about_desc": "基于 FFmpeg 与 libmpv 的快速无损视频播放与剪辑工具",
+        "btn_close": "确定",
     }
 }
 
@@ -727,12 +770,33 @@ _current_language = "ko"
 
 def init_language():
     global _current_language
-    settings = QSettings("MKVLosslessEditor", "MKVLosslessEditor")
-    saved_lang = settings.value("language", "ko")
-    if saved_lang in SUPPORTED_LANGUAGES:
-        _current_language = saved_lang
-    else:
-        _current_language = "ko"
+    lang = None
+    # 1. Try QSettings
+    try:
+        settings = QSettings("LosslessVideoPlayerEditor", "LosslessVideoPlayerEditor")
+        val = settings.value("language", None)
+        if val is None:
+            # Fallback check previous name
+            old_settings = QSettings("MKVLosslessEditor", "MKVLosslessEditor")
+            val = old_settings.value("language", None)
+        if val is not None:
+            s_val = str(val).strip()
+            if s_val in SUPPORTED_LANGUAGES:
+                lang = s_val
+    except Exception:
+        pass
+
+    # 2. Fallback to local config file if QSettings was missing
+    if not lang and os.path.exists(CONFIG_FILE):
+        try:
+            with open(CONFIG_FILE, "r", encoding="utf-8") as f:
+                content = f.read().strip()
+                if content in SUPPORTED_LANGUAGES:
+                    lang = content
+        except Exception:
+            pass
+
+    _current_language = lang if lang in SUPPORTED_LANGUAGES else "ko"
     return _current_language
 
 def get_current_language():
@@ -741,11 +805,25 @@ def get_current_language():
 def set_current_language(lang_code):
     global _current_language
     if lang_code in SUPPORTED_LANGUAGES:
-        _current_language = lang_code
-        settings = QSettings("MKVLosslessEditor", "MKVLosslessEditor")
-        settings.setValue("language", lang_code)
+        _current_language = str(lang_code).strip()
+        # 1. Save to QSettings and force sync
+        try:
+            settings = QSettings("LosslessVideoPlayerEditor", "LosslessVideoPlayerEditor")
+            settings.setValue("language", _current_language)
+            settings.sync()
+        except Exception:
+            pass
+        # 2. Save to local config.ini
+        try:
+            with open(CONFIG_FILE, "w", encoding="utf-8") as f:
+                f.write(_current_language)
+        except Exception:
+            pass
         return True
     return False
+
+# Initialize language on module import
+init_language()
 
 def tr(key, **kwargs):
     """
